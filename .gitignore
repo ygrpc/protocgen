@@ -1,3 +1,12 @@
+# ignore any file without file extension
+# if you need add such file use git add -f xxx
+# * tells git to ignore everything.
+# !*/ then unignores anything that is a directory. This is crucial.
+# !*.* unignores all files with an extension.
+*
+!*/
+!*.*
+
 # If you prefer the allow list template instead of the deny list, see community template:
 # https://github.com/github/gitignore/blob/main/community/Golang/Go.AllowList.gitignore
 #
@@ -19,3 +28,5 @@
 
 # Go workspace file
 go.work
+
+.idea/

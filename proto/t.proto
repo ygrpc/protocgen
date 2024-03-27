@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package proto;
+
+option go_package = "github.com/ygrpc/protocgen/proto";
+
+import "protodb/protodb.proto";
+
+message Dborg {
+  option (protodb.pdbm).MsgList = 1;
+}
