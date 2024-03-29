@@ -15,6 +15,10 @@ type TProtocgenRpc struct {
 	Port    int
 }
 
+type TrpcReply struct {
+	ResponseByte []byte
+}
+
 const DefaultProtogenPort = 20000
 
 func (this *TProtocgenRpc) CallReqRes(request *pluginpb.CodeGeneratorRequest) (response *pluginpb.CodeGeneratorResponse, err error) {
@@ -25,15 +29,17 @@ func (this *TProtocgenRpc) CallReqRes(request *pluginpb.CodeGeneratorRequest) (r
 
 	}
 
-	var respBytes []byte
+	rpcReply := &TrpcReply{
+		ResponseByte: make([]byte, 0),
+	}
 
-	err = this.CallBytes(reqBytes, &respBytes)
+	err = this.CallBytes(reqBytes, rpcReply)
 	if err != nil {
 		return nil, err
 	}
 
 	resp := &pluginpb.CodeGeneratorResponse{}
-	err = proto.Unmarshal(respBytes, resp)
+	err = proto.Unmarshal(rpcReply.ResponseByte, resp)
 	if err != nil {
 		return nil, err
 	}
@@ -41,13 +47,13 @@ func (this *TProtocgenRpc) CallReqRes(request *pluginpb.CodeGeneratorRequest) (r
 	return resp, nil
 
 }
-func (this *TProtocgenRpc) CallBytes(request []byte, response *[]byte) error {
+func (this *TProtocgenRpc) CallBytes(request []byte, reply *TrpcReply) error {
 	client, err := rpc.DialHTTP("tcp", "localhost:"+strconv.Itoa(this.Port))
 	if err != nil {
 		return err
 	}
 
-	err = client.Call("TProtocgenRpc.OnCallBytes", request, response)
+	err = client.Call("TProtocgenRpc.OnCallBytes", request, reply)
 	if err != nil {
 		return err
 
@@ -63,7 +69,7 @@ func (this *TProtocgenRpc) OnCallReqRes(request *pluginpb.CodeGeneratorRequest) 
 	return response
 
 }
-func (this *TProtocgenRpc) OnCallBytes(requestBytes []byte, responseBytes *[]byte) error {
+func (this *TProtocgenRpc) OnCallBytes(requestBytes []byte, rpcreply *TrpcReply) error {
 
 	request := &pluginpb.CodeGeneratorRequest{}
 	err := proto.Unmarshal(requestBytes, request)
@@ -78,7 +84,7 @@ func (this *TProtocgenRpc) OnCallBytes(requestBytes []byte, responseBytes *[]byt
 		return err
 	}
 
-	responseBytes = &respBytes
+	rpcreply.ResponseByte = append(rpcreply.ResponseByte, respBytes...)
 
 	return nil
 }

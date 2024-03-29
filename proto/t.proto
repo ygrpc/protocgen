@@ -6,6 +6,6 @@ option go_package = "github.com/ygrpc/protocgen/proto";
 
 import "protodb/protodb.proto";
 
-message Dborg {
+message DbOrg {
   option (protodb.pdbm).MsgList = 1;
 }

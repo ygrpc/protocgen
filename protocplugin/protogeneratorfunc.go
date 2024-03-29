@@ -42,7 +42,7 @@ func ProtoGeneratorMain(genFunc ProtocPluginHandler, in io.Reader, out io.Writer
 	}
 
 	reqParam := request.GetParameter()
-	log.Println("request para:", reqParam)
+	//log.Println("request para:", reqParam)
 	if strings.Contains(reqParam, "--protocgen-port") {
 
 		response, err = ExecProtocPluginRpc(request, genFunc)
@@ -56,6 +56,9 @@ func ProtoGeneratorMain(genFunc ProtocPluginHandler, in io.Reader, out io.Writer
 
 	}
 
+	if len(response.File) == 0 {
+		log.Println("info: no generate msglist files")
+	}
 	data, err = proto.Marshal(response)
 	if err != nil {
 		return request, nil, fmt.Errorf("error: failed to marshal output proto: %v", err)
@@ -100,7 +103,6 @@ func ExecProtocPluginRpc(request *pluginpb.CodeGeneratorRequest, genFunc ProtocP
 		Port: protocgenPort,
 	}
 
-	response = &pluginpb.CodeGeneratorResponse{}
 	response, err = rpcObj.CallReqRes(request)
 
 	return response, err
