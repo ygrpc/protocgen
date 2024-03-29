@@ -30,3 +30,4 @@
 go.work
 
 .idea/
+/proto/t.msglist.proto
