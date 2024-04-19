@@ -131,7 +131,7 @@ message   {{.Msg}}List {
 			needMsgList := false
 
 			if strings.HasPrefix(msgName, "Db") ||
-				strings.HasSuffix(msgName, "DB") {
+				strings.HasPrefix(msgName, "DB") {
 				needMsgList = true
 			}
 
