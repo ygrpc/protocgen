@@ -1,13 +1,15 @@
 package main
 
 import (
-	"github.com/ygrpc/protocgen/protocplugin"
-	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/pluginpb"
 	"log"
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/ygrpc/protocgen/protocplugin"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/pluginpb"
 )
 
 func main() {
@@ -58,9 +60,13 @@ func protocSaveHandler(request *pluginpb.CodeGeneratorRequest) (genFiles []*plug
 	//request bytes
 	requestBytes, _ := proto.Marshal(request)
 
+	//req json bytes
+	requestJsonBytes, _ := protojson.Marshal(request)
+
 	//get protoc plugin option
 
 	filename := "ygrpc-protocsave-request.out"
+	filenameJson := "ygrpc-protocsave-request.json"
 
 	reqParam := request.GetParameter()
 	log.Println("request para:", reqParam)
@@ -68,6 +74,7 @@ func protocSaveHandler(request *pluginpb.CodeGeneratorRequest) (genFiles []*plug
 	//get filename from protoc plugin option like filename=xxx
 	if filenamePos := strings.Index(reqParam, "filename="); filenamePos != -1 {
 		filename = reqParam[filenamePos+9:]
+		filenameJson = filename + ".json"
 	}
 
 	//save requestBytes to the file with filename
@@ -79,6 +86,17 @@ func protocSaveHandler(request *pluginpb.CodeGeneratorRequest) (genFiles []*plug
 
 	if _, err := file.Write(requestBytes); err != nil {
 		log.Fatalf("error: failed to write file %s: %v", filename, err)
+	}
+
+	//save requestJsonBytes to the file with filenameJson
+	fileJson, err := os.Create(filenameJson)
+	if err != nil {
+		log.Fatalf("error: failed to create file %s: %v", filenameJson, err)
+	}
+	defer fileJson.Close()
+
+	if _, err := fileJson.Write(requestJsonBytes); err != nil {
+		log.Fatalf("error: failed to write file %s: %v", filenameJson, err)
 	}
 
 	return nil
