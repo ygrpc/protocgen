@@ -53,7 +53,7 @@ func main() {
 
 		server.Run()
 	} else {
-		time.Sleep(20 * time.Second)
+		//time.Sleep(20 * time.Second)
 		_, _, err := protocplugin.ProtoGeneratorMain(protocProtodbHandler, os.Stdin, os.Stdout, logPrefix)
 		if err != nil {
 			log.Fatalf("error: failed to execute protoc plugin handler: %v", err)
