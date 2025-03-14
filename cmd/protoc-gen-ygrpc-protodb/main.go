@@ -82,7 +82,6 @@ func get{{.Msg}}(new bool) proto.Message {
 	}
 	if msg{{.Msg}} == nil {
 		msg{{.Msg}} = &{{.Msg}}{}
-		})
 	}
 
 	return msg{{.Msg}}
