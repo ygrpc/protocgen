@@ -19,4 +19,4 @@ CYGWIN* | MINGW* | MSYS*)
   ;;
 esac
 rm -f ~/bin/protoc-gen-ygrpc-protodb${exe_ext}
-go build -o ~/bin/protoc-gen-ygrpc-protodb${exe_ext} protoc-gen-ygrpc-protodb.go
+go build -o ~/bin/protoc-gen-ygrpc-protodb${exe_ext} ./main.go
