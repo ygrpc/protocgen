@@ -85,6 +85,12 @@ func get{{.Msg}}(new bool) proto.Message {
 
 	return msg{{.Msg}}
 }
+
+const {{.Msg}}LastFieldNo = {{.MsgLastFieldNo}}
+
+func (x *{{.Msg}}) LastFieldNo() int32 {
+	return {{.Msg}}LastFieldNo
+}
 `
 
 	for _, fd = range request.GetProtoFile() {
@@ -156,9 +162,17 @@ func get{{.Msg}}(new bool) proto.Message {
 			if !needMsgList {
 				continue
 			}
+			var msgLastFieldNo int32 = 0
+			//iterate all fields
+			for _, field := range msg.GetField() {
+				if field.GetNumber() > msgLastFieldNo {
+					msgLastFieldNo = field.GetNumber()
+				}
+			}
 
 			tMsgData := map[string]interface{}{
-				"Msg": msgName,
+				"Msg":            msgName,
+				"MsgLastFieldNo": msgLastFieldNo,
 			}
 
 			allMsgs = append(allMsgs, msgName)
@@ -181,7 +195,7 @@ func get{{.Msg}}(new bool) proto.Message {
 		initStrBilder := strings.Builder{}
 		initStrBilder.WriteString("\nfunc init() {\n")
 		for _, msg := range allMsgs {
-			initStrBilder.WriteString(fmt.Sprintf("msgstore.RegisterMsg(\"%s\", get%s)\n", msg, msg))
+			initStrBilder.WriteString(fmt.Sprintf("    msgstore.RegisterMsg(\"%s\", get%s)\n", msg, msg))
 		}
 		initStrBilder.WriteString("}\n")
 
