@@ -91,6 +91,7 @@ const {{.Msg}}LastFieldNo = {{.MsgLastFieldNo}}
 func (x *{{.Msg}}) LastFieldNo() int32 {
 	return {{.Msg}}LastFieldNo
 }
+{{.FieldProtoMsg}}
 `
 
 	for _, fd = range request.GetProtoFile() {
@@ -135,6 +136,7 @@ func (x *{{.Msg}}) LastFieldNo() int32 {
 			msgName := msg.GetName()
 
 			needMsgList := false
+			FieldProtoMsgFields := []*descriptorpb.FieldDescriptorProto{}
 
 			if strings.HasPrefix(msgName, "Db") ||
 				strings.HasPrefix(msgName, "DB") {
@@ -168,11 +170,18 @@ func (x *{{.Msg}}) LastFieldNo() int32 {
 				if field.GetNumber() > msgLastFieldNo {
 					msgLastFieldNo = field.GetNumber()
 				}
+
+				if field.GetType() == descriptorpb.FieldDescriptorProto_TYPE_MESSAGE {
+					FieldProtoMsgFields = append(FieldProtoMsgFields, field)
+				}
 			}
+
+			FieldProtoMsgStr := genFieldProtoMsg(msg, FieldProtoMsgFields)
 
 			tMsgData := map[string]interface{}{
 				"Msg":            msgName,
 				"MsgLastFieldNo": msgLastFieldNo,
+				"FieldProtoMsg":  FieldProtoMsgStr,
 			}
 
 			allMsgs = append(allMsgs, msgName)
@@ -195,7 +204,7 @@ func (x *{{.Msg}}) LastFieldNo() int32 {
 		initStrBilder := strings.Builder{}
 		initStrBilder.WriteString("\nfunc init() {\n")
 		for _, msg := range allMsgs {
-			initStrBilder.WriteString(fmt.Sprintf("    msgstore.RegisterMsg(\"%s\", get%s)\n", msg, msg))
+			initStrBilder.WriteString(fmt.Sprintf("   msgstore.RegisterMsg(\"%s\", get%s)\n", msg, msg))
 		}
 		initStrBilder.WriteString("}\n")
 
@@ -210,6 +219,41 @@ func (x *{{.Msg}}) LastFieldNo() int32 {
 
 	}
 	return
+}
+
+func genFieldProtoMsg(msg *descriptorpb.DescriptorProto, fields []*descriptorpb.FieldDescriptorProto) string {
+	r := ""
+	if len(fields) == 0 {
+		return r
+	}
+	r += fmt.Sprintf(`
+func (x *%s) FieldProtoMsg(fieldName string) (proto.Message,bool) {
+   switch fieldName {
+`, msg.GetName())
+
+	for _, field := range fields {
+		fieldTypeName := extractFieldMsgTypeName(msg, field)
+		r += fmt.Sprintf(`   case "%s":
+         return &%s{}, true
+`, field.GetName(), fieldTypeName)
+	}
+	r += `	}
+	return nil, false
+}
+`
+
+	return r
+}
+
+func extractFieldMsgTypeName(msg *descriptorpb.DescriptorProto, field *descriptorpb.FieldDescriptorProto) string {
+	fieldTypeNameFull := field.GetTypeName()
+	posLastDot := strings.LastIndex(fieldTypeNameFull, ".")
+	if posLastDot == -1 {
+		return fieldTypeNameFull
+	}
+	fieldTypeName := fieldTypeNameFull[posLastDot+1:]
+	return fieldTypeName
+
 }
 
 func getGoSubPackage(goPackage string, protoPackage string) string {
