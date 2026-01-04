@@ -3,17 +3,18 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"github.com/ygrpc/protocgen/protocplugin"
-	"github.com/ygrpc/protodb"
-	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/descriptorpb"
-	"google.golang.org/protobuf/types/pluginpb"
 	"log"
 	"os"
 	"slices"
 	"strconv"
 	"strings"
 	"text/template"
+
+	"github.com/ygrpc/protocgen/protocplugin"
+	"github.com/ygrpc/protodb"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/descriptorpb"
+	"google.golang.org/protobuf/types/pluginpb"
 )
 
 func main() {
@@ -99,6 +100,7 @@ func (x *{{.Msg}}) LastFieldNo() int32 {
 			//not generate this file
 			continue
 		}
+		msgIndex := buildMessageTypeIndex(fd)
 		needWriteThisFile := false
 
 		original_file := fd.GetName()
@@ -172,6 +174,15 @@ func (x *{{.Msg}}) LastFieldNo() int32 {
 				}
 
 				if field.GetType() == descriptorpb.FieldDescriptorProto_TYPE_MESSAGE {
+					// FieldProtoMsg is only used for singular message fields.
+					// Repeated message fields are handled via FieldDescriptor.IsList() at runtime.
+					if field.GetLabel() == descriptorpb.FieldDescriptorProto_LABEL_REPEATED {
+						continue
+					}
+					// Check if it's a map entry (i.e., a map field)
+					if isMapEntryField(field, msgIndex) {
+						continue
+					}
 					FieldProtoMsgFields = append(FieldProtoMsgFields, field)
 				}
 			}
@@ -263,4 +274,44 @@ func getGoSubPackage(goPackage string, protoPackage string) string {
 	//split by / and get last one
 	goPackageList := strings.Split(goPackage, "/")
 	return goPackageList[len(goPackageList)-1]
+}
+
+func buildMessageTypeIndex(fd *descriptorpb.FileDescriptorProto) map[string]*descriptorpb.DescriptorProto {
+	idx := make(map[string]*descriptorpb.DescriptorProto)
+	pkg := fd.GetPackage()
+	for _, msg := range fd.GetMessageType() {
+		full := qualifyTypeName(pkg, msg.GetName())
+		indexMessageTypes(idx, full, msg)
+	}
+	return idx
+}
+
+func qualifyTypeName(pkg, name string) string {
+	if pkg == "" {
+		return "." + name
+	}
+	return "." + pkg + "." + name
+}
+
+func indexMessageTypes(idx map[string]*descriptorpb.DescriptorProto, fullName string, msg *descriptorpb.DescriptorProto) {
+	idx[fullName] = msg
+	for _, nested := range msg.GetNestedType() {
+		nestedFull := fullName + "." + nested.GetName()
+		indexMessageTypes(idx, nestedFull, nested)
+	}
+}
+
+func isMapEntryField(field *descriptorpb.FieldDescriptorProto, msgIndex map[string]*descriptorpb.DescriptorProto) bool {
+	if field.GetType() != descriptorpb.FieldDescriptorProto_TYPE_MESSAGE {
+		return false
+	}
+	msgTypeName := field.GetTypeName()
+	if msgTypeName == "" {
+		return false
+	}
+	msgDesc, ok := msgIndex[msgTypeName]
+	if !ok {
+		return false
+	}
+	return msgDesc.GetOptions().GetMapEntry()
 }
