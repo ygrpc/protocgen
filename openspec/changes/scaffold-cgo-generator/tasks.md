@@ -1,18 +1,13 @@
-- [ ] 脚手架搭建 (Scaffolding)
+- [ ] 脚手架与基础 (Scaffolding & Basics)
     - [ ] 创建 `cmd/protoc-gen-ygrpc-cgo` 目录及 `main.go`。
-- [ ] 辅助设施 (Helpers)
-    - [ ] C Helper: 定义 `FreeFunc` 类型。
-    - [ ] C Helper: 实现 `wrap_free` 供 Go 返回标准 `free` 函数。
-    - [ ] Go Helper: 实现 `CallFreeFunc(fn, ptr)` 用于调用 C 传入的销毁器。
-- [ ] Unary 支持 (C -> Go)
-    - [ ] 模板：生成入口函数，签名包含 `req_free` (Input) 和 `out_free` (Output)。
-    - [ ] 逻辑 (Input)：在 `defer` 中调用 `req_free`。
-    - [ ] 逻辑 (Core)：无需拦截器，直接调用 `impl.Method(ctx, ...)`。
-    - [ ] 逻辑 (Output)：分配内存，并将标准 `free` 函数赋值给 `*out_free`。
-- [ ] 流式支持 (C -> Go)
-    - [ ] 回调定义：`OnRead` 增加 `FreeFunc` 参数。
-    - [ ] 逻辑：
-        - Adapter 在调用 C 回调时，传入 Go 导出的一次性释放函数。
-        - 启动 Goroutine 时直接运行 Handler，无拦截器链。
+- [ ] 核心：二进制模式 (Binary Mode)
+    - [ ] 实现基础的 `(ptr, len, free)` 交换逻辑。这一逻辑将是所有模式的基础。
+- [ ] 核心：原生模式 (Native Mode)
+    - [ ] [Analysis] 实现 Message 结构分析器，判断是否为“扁平”结构。
+    - [ ] [Template] 实现 Unary 展开参数的模板生成逻辑，生成 `_Native` 后缀函数。
+    - [ ] [Logic] 实现 String/Bytes 字段展开为三元组 `(ptr, len, free)` 的逻辑。
+    - [ ] [Logic] Go 侧直接 Struct 赋值/取值逻辑 (替代 Unmarshal/Marshal)。
 - [ ] 验证测试 (Verification)
-    - [ ] 编写测试：C 代码调用 Go，验证生命周期和业务逻辑正确性。
+    - [ ] 编写包含扁平 Message 的 Proto。
+    - [ ] 验证生成的 `_Native` 接口包含正确的三元组参数。
+    - [ ] 验证 C 调用 Native 接口并正确管理内存。

@@ -3,28 +3,34 @@
 ## ADDED Requirements
 
 ### Requirement: Export Go Functions
-插件必须 (MUST) 为每个输入 proto 文件生成 Go 文件，其中包含允许 C 调用 RPC 逻辑的 `//export` 导出函数。
+插件必须 (MUST) 导出 `//export` 函数。
 
 #### Scenario: Unary Export
 给定 `rpc SayHello`，生成的 Go 代码包含 `//export Service_SayHello`。
 
+### Requirement: Binary Mode Support
+插件必须 (MUST) 始终生成接受 Protobuf 二进制数据的标准接口。
+
+#### Scenario: Fallback Interface
+即便 Native Mode 可用，生成的代码也必须保留接受 `reqbuf` 和 `respbuf` 的通用接口。
+
+### Requirement: Native Arguments Support
+对于仅仅包含基本类型（Scalars, Strings, Bytes）的消息，插件必须 (MUST) 额外生成一个 "Native" 版本的接口，将字段展开为函数参数。
+
+#### Scenario: Flat Message Input
+给定 `message Log { string msg = 1; int32 level = 2; }`，Native 接口签名应为 `Func(const char* msg, int msg_len, FreeFunc msg_free, int level, ...)`。接口名称必须以 `_Native` 结尾。
+
+#### Scenario: Flat Message Output
+对于上述消息作为返回值，Native 接口应包含输出参数 `char** out_msg, int* out_msg_len, FreeFunc* out_msg_free, int* out_level`。
+
 ### Requirement: Explicit Lifecycle ABI
-所有数据交换必须 (MUST) 携带对应的释放函数 (FreeFunc)。
+所有引用类型（String/Bytes/Message）的数据交换必须 (MUST) 携带释放函数。
 
-#### Scenario: Input Lifecycle
-当 C 向 Go 传递参数 `req` 时，必须同时传入 `FreeFunc req_free`。Go 必须在不再使用 `req` 时执行 `req_free(req)`。
-
-#### Scenario: Output Lifecycle
-当 Go 向 C 返回参数 `out` 时，必须同时返回 `FreeFunc out_free`。C 必须在不再使用 `out` 时执行 `out_free(out)`。
-
-### Requirement: Pinned Memory
-Go 向 C 返回的内存地址必须 (MUST) 是“固定”的（Pinned/Off-Heap）。
-
-#### Scenario: C Malloc
-Go 实现应使用 `C.malloc` 分配返回内存。
+#### Scenario: Input String Full Cycle
+当 C 向 Go 传递 String 字段时（无论是 Binary 还是 Native 模式），必须传入 `(ptr, len, free)`。Go 必须使用 `GoStringN` 读取数据，并在使用后调用 `free(ptr)`。
 
 ### Requirement: Generate C Header
-插件必须 (MUST) 生成 C 头文件。
+头文件必须 (MUST) 包含 Binary 和 Native (如果可用) 两种接口的原型。
 
-#### Scenario: Prototype
-`int Func(const char* req, int req_len, FreeFunc req_free, char** out, int* out_len, FreeFunc* out_free);`
+#### Scenario: Header Protos
+头文件必须包含 `Service_Method` (二进) 和 `Service_Method_Native` (原生) 的定义。
