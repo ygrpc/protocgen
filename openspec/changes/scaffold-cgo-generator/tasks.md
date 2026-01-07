@@ -10,9 +10,9 @@
     - 交付物：生成的 Go 文件包含 `import "C"` 的 cgo 注释块，内含 `typedef void (*FreeFunc)(void*);` 及相关声明（不使用 C struct，三元组通过参数列表表达）。
     - 验收点：生成代码 `go test` 可编译（至少到 cgo 语法层面，不要求链接到真实 C 程序）。
 
-- [ ] 2.2 生成 Unary 的 Binary 接口（必有）
+- [x] 2.2 生成 Unary 的 Binary 接口（必有）
     - 交付物：每个 unary rpc 生成一个导出函数，签名使用 `(ptr, len, free)` 作为输入与输出。
-    - 验收点：对 sample proto 生成的头文件/Go 导出函数名与参数满足 change specs（`cgo-interop`）。
+    - 验收点：对 sample proto 编译生成的 cgo 头文件（buildmode=c-shared 自动产出）/Go 导出函数名与参数满足 change specs（`cgo-interop`）。
 
 - [ ] 2.3 统一错误模型（Binary）
     - 交付物：导出函数以 `int` 错误码返回；错误信息通过 `msg_error`（三元组）输出。
