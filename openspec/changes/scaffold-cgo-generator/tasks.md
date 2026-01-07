@@ -1,0 +1,17 @@
+- [ ] 脚手架搭建 (Scaffolding)
+  - [ ] 创建 `cmd/protoc-gen-ygrpc-cgo/main.go`。
+- [ ] Unary 支持 (C -> Go)
+  - [ ] 模板：生成 `//export` 入口函数。
+  - [ ] 逻辑：实现 `req -> unmarshal -> interceptor -> handler -> marshal -> resp` 链条。
+  - [ ] 验证：C 代码调用 Unary 接口并获得正确响应。
+- [ ] 流式支持 (C -> Go)
+  - [ ] Stream Adapter：实现 `grpc.ServerStream` 接口，对接 CGO 回调和 Channel。
+  - [ ] Start 逻辑：启动 Goroutine，组装 Stream Interceptor 链。
+  - [ ] Send/Recv 导出：实现供 C 调用的数据传输函数。
+- [ ] 头文件生成
+  - [ ] 生成对应的 C 函数原型。
+- [ ] 验证测试 (Verification)
+  - [ ] 编写一个 Go gRPC Service 实现。
+  - [ ] 生成 CGO 代码。
+  - [ ] 编写 C `main` 函数调用该服务。
+  - [ ] 验证 Middleware 是否被触发。
