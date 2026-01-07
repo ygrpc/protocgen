@@ -2,82 +2,103 @@
 
 ## 概述 (Overview)
 
-`protoc-gen-ygrpc-cgo` 插件生成一个 Go 适配层，将 Go 实现的 RPC 服务（gRPC/ConnectRPC）通过 CGO 导出给 C/C++ 程序调用。
-架构本质上是将标准的 Transport 层替换为了 "CGO Interface"，但保留了 Interceptors 和 Handler 逻辑。
+`protoc-gen-ygrpc-cgo` 插件生成一个 Go 适配层，将 Go 实现的 RPC 服务导出给 C 使用。
 
 ## 架构 (Architecture)
 
 ```mermaid
 graph LR
-    CApp(C Application) -->|Call| GoExport[Go Exported Function]
+    CApp(C Application) -->|Call + FreeCallback| GoExport[Go Exported Function]
     GoExport -->|Run| Middleware[Go Interceptors]
     Middleware -->|Call| GoHandler[Go Service Implementation]
     GoHandler -->|Result| Middleware
-    Middleware -->|Return| GoExport
+    Middleware -->|Return Ptr + FreeFunc| GoExport
     GoExport -->|Return| CApp
 ```
 
-## 生成组件 (Generated Components)
+## 数据传递与内存生命周期 (ABI & Lifecycle)
 
-对于包 `mypkg` 和服务 `MyService`：
+### 1. 核心原则：显式生命周期管理
 
-1.  **`mypkg_cgo.go`**:
-    - 定义 `//export Service_Method` 函数。
-    - 内部负责：`C 数据 -> 反序列化 -> 构造 Context -> 执行 Interceptor -> 调用 Handler -> 序列化 -> 返回 C 数据`。
-2.  **`mypkg.h`**:
-    - 提供 C 调用的函数原型。
+为了实现对内存的绝对控制，所有跨语言的内存传递都必须携带“销毁器 (Destructor)”。
 
-## 数据传递 (ABI)
+### 2. C -> Go (Input String/Bytes)
 
-### 1. Unary 定义 (同步调用)
+**规则**:
 
-**C 侧 (调用者):**
+- C 传入数据指针 (`val`) 和长度 (`len`)。
+- C **必须** 同时传入一个释放函数 (`free_func`)。
+- Go 在使用完该数据（通常是函数返回前，或异步调用结束后）**必须** 调用该 `free_func`。
+
+**接口定义**:
+
 ```c
-// C 调用此函数发送请求并获取响应
-int MyService_MyUnary(const char* req, int len, char** resp, int* resp_len, char** err_msg);
+typedef void (*FreeFunc)(void* ptr);
+
+int MyService_MyUnary(
+    // Input
+    const char* req, int req_len,
+    FreeFunc req_free,            // C 提供的释放函数，Go 用完 req 后调用它
+
+    // Output
+    char** out, int* out_len,
+    FreeFunc* out_free            // Go 返回的释放函数，C 用完 out 后调用它
+);
 ```
 
-**Go 侧 (被调用者):**
+### 3. Go -> C (Output String/Bytes)
+
+**规则**:
+
+- Go 分配内存（必须固定/Pinned，通常使用 `C.malloc` 分配堆外内存以避开 GC 移动）。
+- Go **必须** 返回一个专门用于释放该内存的函数指针 (`out_free`) 给 C。
+- C 在使用完数据后，调用 `out_free(out)`。
+
+**Go 实现逻辑**:
+
 ```go
 //export MyService_MyUnary
-func MyService_MyUnary(reqBuf *C.char, reqLen C.int, respBuf **C.char, respLen *C.int, errPtr **C.char) C.int {
-    // 1. Unmarshal reqBuf to Go Struct
-    // 2. Setup Context (with metadata if needed)
-    // 3. Compose Interceptor Chain (gRPC/Connect adapter)
-    // 4. Call real implementation: impl.MyUnary(ctx, req)
-    // 5. Marshal response -> *respBuf
-    // 6. Return status code
+func MyService_MyUnary(
+    reqBuf *C.char, reqLen C.int, reqFree C.FreeFunc,     // IN
+    outBuf **C.char, outLen *C.int, outFree *C.FreeFunc,  // OUT
+) C.int {
+    // 1. 处理输入
+    // 使用 reqBuf...
+    // 关键：确保在不再需要 reqBuf 后调用释放
+    defer C.call_free_func(reqFree, reqBuf)
+
+    // 2. 业务逻辑...
+
+    // 3. 处理输出
+    // Go 使用 C.malloc 分配 Pinned Memory
+    *outBuf = C.malloc(respLen)
+    copy(*outBuf, respData)
+    *outLen = respLen
+
+    // 返回标准释放函数 (wrapper for free)
+    *outFree = C.get_standard_free_func()
+
+    return 0
 }
 ```
 
-### 2. 流式定义 (基于回调)
+### 4. 流式定义 (基于回调)
 
-对于 Streaming RPC，C 是发起方 (Client)，Go 是服务方 (Server)。
+**回调定义**:
+`OnRead` 回调同样遵循此规则：
 
-**C 侧接口:**
 ```c
-// 1. 启动流 (返回 Handle)
-long MyService_Stream_Start(OnReadFunc onRead, OnDoneFunc onDone, void* user_ctx);
-
-// 2. 发送数据 (C -> Go)
-int MyService_Stream_Send(long handle, const char* data, int len);
-
-// 3. 关闭发送 (EOF)
-void MyService_Stream_Close(long handle);
+// Go 推送数据给 C
+// Go 提供 data, len, 以及 data_free 函数。
+// C 处理完 data 后，必须调用 data_free(data)。
+typedef void (*OnReadFunc)(void* ctx, char* data, int len, FreeFunc data_free);
 ```
 
-**Go 侧实现:**
-- `Start`: 启动一个 Goroutine。该 Goroutine 创建一个流适配器（Adapter）。
-- `Adapter`:
-    - 封装了底层的数据交换（调用 `OnRead` / 读取 Channel）。
-    - 向上层 Handler 暴露标准流接口（如 `grpc.ServerStream` 或 `connect.ClientStream`，视具体实现而定）。
-- **执行流**: Goroutine 启动后，执行流式拦截器，最后调用实现方法。
+## 字符串编码
 
-## 中间件适配
+- 依旧强制 UTF-8。
 
-由于 gRPC 和 ConnectRPC 的中间件签名不同，生成的代码应提供适配层或生成特定于框架的适配代码（通过插件参数控制生成 `grpc` 适配还是 `connect` 适配）。
-默认设计应确保 CGO 接口保持稳定，不随 Go 侧框架变化。
+## 内存安全总结
 
-## 并发与内存
-- **并发**: Streaming 调用在 Go 创建的新 Goroutine 上异步运行。C 回调也会在该 Goroutine 上执行。
-- **内存**: Go 分配给 C 的内存需由 C 释放。
+- **Input**: Go 负责 Driver (C) 传入内存的生命周期结束（调用 C 提供的 Free）。
+- **Output**: C 负责 Service (Go) 返回内存的生命周期结束（调用 Go 提供的 Free）。

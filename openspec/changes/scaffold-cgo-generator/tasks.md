@@ -1,18 +1,18 @@
 - [ ] 脚手架搭建 (Scaffolding)
-    - [ ] 创建 `cmd/protoc-gen-ygrpc-cgo` 目录及 `main.go`。
+  - [ ] 创建 `cmd/protoc-gen-ygrpc-cgo` 目录及 `main.go`。
+- [ ] 辅助设施 (Helpers)
+  - [ ] C Helper: 定义 `FreeFunc` 类型。
+  - [ ] C Helper: 实现 `wrap_free` 供 Go 返回标准 `free` 函数。
+  - [ ] Go Helper: 实现 `CallFreeFunc(fn, ptr)` 用于调用 C 传入的销毁器。
 - [ ] Unary 支持 (C -> Go)
-    - [ ] 模板：生成 `//export` 入口函数。
-    - [ ] 逻辑：实现 `req -> unmarshal -> interceptor -> handler -> marshal -> resp` 链条。
-    - [ ] 适配：支持注入 gRPC 或 Connect 风格的拦截器。
+  - [ ] 模板：生成入口函数，签名包含 `req_free` (Input) 和 `out_free` (Output)。
+  - [ ] 逻辑 (Input)：在 `defer` 中调用 `req_free`。
+  - [ ] 逻辑 (Output)：分配内存，并将标准 `free` 函数赋值给 `*out_free`。
 - [ ] 流式支持 (C -> Go)
-    - [ ] Stream Adapter：实现通用的流适配器，对接 CGO 回调和 Channel。
-    - [ ] 框架适配：确保 Adapter 能被封装为 `grpc.ServerStream` 或 `connect.Stream`。
-    - [ ] Start 逻辑：启动 Goroutine，组装流式拦截器链。
-    - [ ] Send/Recv 导出：实现供 C 调用的数据传输函数。
-- [ ] 头文件生成
-    - [ ] 生成对应的 C 函数原型。
+  - [ ] 回调定义：`OnRead` 增加 `FreeFunc` 参数。
+  - [ ] 逻辑：
+    - Adapter 在调用 C 回调时，传入 Go 导出的一次性释放函数（用于释放该次消息的内存）。
+    - 或者传入标准 free（如果使用了 malloc）。
 - [ ] 验证测试 (Verification)
-    - [ ] 编写一个 Go RPC Service 实现（测试 gRPC 和 Connect 两种情况）。
-    - [ ] 生成 CGO 代码。
-    - [ ] 编写 C `main` 函数调用该服务。
-    - [ ] 验证 Middleware 是否被触发。
+  - [ ] 编写测试：使用自定义 Allocator 的 C 代码调用 Go，验证 Go 是否正确回调了自定义 Free。
+  - [ ] 编写测试：验证 C 调用 Go 返回的 Free 函数能否正确释放内存。
