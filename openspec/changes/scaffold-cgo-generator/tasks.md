@@ -1,18 +1,18 @@
 - [ ] 脚手架搭建 (Scaffolding)
-  - [ ] 创建 `cmd/protoc-gen-ygrpc-cgo` 目录及 `main.go`。
+    - [ ] 创建 `cmd/protoc-gen-ygrpc-cgo` 目录及 `main.go`。
 - [ ] 辅助设施 (Helpers)
-  - [ ] C Helper: 定义 `FreeFunc` 类型。
-  - [ ] C Helper: 实现 `wrap_free` 供 Go 返回标准 `free` 函数。
-  - [ ] Go Helper: 实现 `CallFreeFunc(fn, ptr)` 用于调用 C 传入的销毁器。
+    - [ ] C Helper: 定义 `FreeFunc` 类型。
+    - [ ] C Helper: 实现 `wrap_free` 供 Go 返回标准 `free` 函数。
+    - [ ] Go Helper: 实现 `CallFreeFunc(fn, ptr)` 用于调用 C 传入的销毁器。
 - [ ] Unary 支持 (C -> Go)
-  - [ ] 模板：生成入口函数，签名包含 `req_free` (Input) 和 `out_free` (Output)。
-  - [ ] 逻辑 (Input)：在 `defer` 中调用 `req_free`。
-  - [ ] 逻辑 (Output)：分配内存，并将标准 `free` 函数赋值给 `*out_free`。
+    - [ ] 模板：生成入口函数，签名包含 `req_free` (Input) 和 `out_free` (Output)。
+    - [ ] 逻辑 (Input)：在 `defer` 中调用 `req_free`。
+    - [ ] 逻辑 (Core)：无需拦截器，直接调用 `impl.Method(ctx, ...)`。
+    - [ ] 逻辑 (Output)：分配内存，并将标准 `free` 函数赋值给 `*out_free`。
 - [ ] 流式支持 (C -> Go)
-  - [ ] 回调定义：`OnRead` 增加 `FreeFunc` 参数。
-  - [ ] 逻辑：
-    - Adapter 在调用 C 回调时，传入 Go 导出的一次性释放函数（用于释放该次消息的内存）。
-    - 或者传入标准 free（如果使用了 malloc）。
+    - [ ] 回调定义：`OnRead` 增加 `FreeFunc` 参数。
+    - [ ] 逻辑：
+        - Adapter 在调用 C 回调时，传入 Go 导出的一次性释放函数。
+        - 启动 Goroutine 时直接运行 Handler，无拦截器链。
 - [ ] 验证测试 (Verification)
-  - [ ] 编写测试：使用自定义 Allocator 的 C 代码调用 Go，验证 Go 是否正确回调了自定义 Free。
-  - [ ] 编写测试：验证 C 调用 Go 返回的 Free 函数能否正确释放内存。
+    - [ ] 编写测试：C 代码调用 Go，验证生命周期和业务逻辑正确性。

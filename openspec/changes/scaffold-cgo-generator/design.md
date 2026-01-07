@@ -2,36 +2,30 @@
 
 ## 概述 (Overview)
 
-`protoc-gen-ygrpc-cgo` 插件生成一个 Go 适配层，将 Go 实现的 RPC 服务导出给 C 使用。
+`protoc-gen-ygrpc-cgo` 插件生成一个 Go 适配层，将 Go 实现的 RPC 服务导出给 C 使用。架构简化为直接的函数调用桥接。
 
 ## 架构 (Architecture)
 
 ```mermaid
 graph LR
     CApp(C Application) -->|Call + FreeCallback| GoExport[Go Exported Function]
-    GoExport -->|Run| Middleware[Go Interceptors]
-    Middleware -->|Call| GoHandler[Go Service Implementation]
-    GoHandler -->|Result| Middleware
-    Middleware -->|Return Ptr + FreeFunc| GoExport
+    GoExport -->|Call| GoHandler[Go Service Implementation]
+    GoHandler -->|Return Ptr + FreeFunc| GoExport
     GoExport -->|Return| CApp
 ```
 
 ## 数据传递与内存生命周期 (ABI & Lifecycle)
 
 ### 1. 核心原则：显式生命周期管理
-
 为了实现对内存的绝对控制，所有跨语言的内存传递都必须携带“销毁器 (Destructor)”。
 
 ### 2. C -> Go (Input String/Bytes)
-
 **规则**:
-
 - C 传入数据指针 (`val`) 和长度 (`len`)。
 - C **必须** 同时传入一个释放函数 (`free_func`)。
 - Go 在使用完该数据（通常是函数返回前，或异步调用结束后）**必须** 调用该 `free_func`。
 
 **接口定义**:
-
 ```c
 typedef void (*FreeFunc)(void* ptr);
 
@@ -47,15 +41,12 @@ int MyService_MyUnary(
 ```
 
 ### 3. Go -> C (Output String/Bytes)
-
 **规则**:
-
 - Go 分配内存（必须固定/Pinned，通常使用 `C.malloc` 分配堆外内存以避开 GC 移动）。
 - Go **必须** 返回一个专门用于释放该内存的函数指针 (`out_free`) 给 C。
 - C 在使用完数据后，调用 `out_free(out)`。
 
 **Go 实现逻辑**:
-
 ```go
 //export MyService_MyUnary
 func MyService_MyUnary(
@@ -64,12 +55,15 @@ func MyService_MyUnary(
 ) C.int {
     // 1. 处理输入
     // 使用 reqBuf...
-    // 关键：确保在不再需要 reqBuf 后调用释放
     defer C.call_free_func(reqFree, reqBuf)
 
-    // 2. 业务逻辑...
+    // 2. 构造 Context (无 Middleware)
+    ctx := context.Background()
 
-    // 3. 处理输出
+    // 3. 直接调用业务逻辑
+    // impl.MyUnary(ctx, req)
+
+    // 4. 处理输出
     // Go 使用 C.malloc 分配 Pinned Memory
     *outBuf = C.malloc(respLen)
     copy(*outBuf, respData)
@@ -86,7 +80,6 @@ func MyService_MyUnary(
 
 **回调定义**:
 `OnRead` 回调同样遵循此规则：
-
 ```c
 // Go 推送数据给 C
 // Go 提供 data, len, 以及 data_free 函数。
@@ -95,10 +88,4 @@ typedef void (*OnReadFunc)(void* ctx, char* data, int len, FreeFunc data_free);
 ```
 
 ## 字符串编码
-
 - 依旧强制 UTF-8。
-
-## 内存安全总结
-
-- **Input**: Go 负责 Driver (C) 传入内存的生命周期结束（调用 C 提供的 Free）。
-- **Output**: C 负责 Service (Go) 返回内存的生命周期结束（调用 Go 提供的 Free）。
