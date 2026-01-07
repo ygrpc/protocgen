@@ -64,9 +64,9 @@ Streaming 必须 (MUST) 支持 Binary 与 Native 两个版本：
 
 ### Requirement: Streaming Error Reporting
 
-streaming 相关导出函数必须 (MUST) 以 `int` 返回错误码，并通过 `msg_error`（三元组）输出错误信息。
+streaming 相关导出函数必须 (MUST) 以 `int` 返回错误结果：`0` 表示成功；非 `0` 表示失败并作为全局唯一的 errorId。错误信息通过全局 `Ygrpc_GetErrorMsg` 获取（不通过函数签名输出参数返回）。
 
 #### Scenario: Start Fails
 
 - **WHEN** `Start` 无法创建 stream
-- **THEN** 返回非 0 错误码，并通过 `msg_error` 输出错误信息。
+- **THEN** 返回非 0 errorId，并可在 3s 内通过 `Ygrpc_GetErrorMsg(errorId, ...)` 获取错误信息。

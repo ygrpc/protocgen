@@ -40,12 +40,27 @@
 
 所有引用类型的数据交换必须 (MUST) 携带释放函数参数位置。
 
-#### Scenario: Input FreeFunc Optionality
+#### Scenario: Request FreeFunc Default Omitted
 
-当 C 向 Go 传递参数 `req` 时，同时传入 `FreeFunc req_free`。
+- **WHEN** 生成 unary 或 streaming 的导出函数签名（Binary 或 Native）
+- **THEN** 默认情况下 **不得**在函数签名中包含 request 的 `FreeFunc` 参数（包括 Binary 模式下的 `req_free`，以及 Native 模式下 string/bytes 参数对应的 `*_free`）。
+- **AND THEN** Go 必须 (MUST) **不执行**任何 request 释放操作，仅读取数据。
 
-- 如果 `req_free` **不为 NULL**，Go 必须 (MUST) 在不再使用 `req` 时执行 `req_free(req)`。
-- 如果 `req_free` **为 NULL**，Go 必须 (MUST) **不执行** 任何释放操作，仅读取数据。这也适用于 Native 模式下的字符串参数。
+#### Scenario: Request FreeFunc Via Message Option
+
+- **GIVEN** request message 声明了自定义 option（详见下方 “Request Free Option”）
+- **WHEN** 生成以该 message 作为 request 的导出函数签名
+- **THEN** 生成器必须 (MUST) 按 option 值决定是否包含 request `FreeFunc`，并在包含时遵守：
+	- 如果 `req_free`（或 `*_free`）**不为 NULL**，Go 必须 (MUST) 在不再使用对应 request 内存时调用该 free。
+	- 如果 `req_free`（或 `*_free`）**为 NULL**，Go 必须 (MUST) 不执行释放。
+
+#### Scenario: Dual Variant Generation
+
+- **GIVEN** request message option=3
+- **WHEN** 生成以该 message 为 request 的导出函数
+- **THEN** 必须 (MUST) 同时生成两套导出符号：
+	- 默认符号：不包含 request `free`
+	- `*_TakeReq` 符号：包含 request `free`（表示将 request 内存所有权交给 Go，由 Go 负责在合适时机释放）
 
 #### Scenario: len=0 Means Absent Input
 
@@ -58,16 +73,53 @@
 
 当 Go 向 C 返回参数 `out` 时，必须 (MUST) 总是返回有效的 `out_free` 函数指针，C 必须调用它。
 
-### Requirement: Error Reporting
+### Requirement: Error Reporting (ErrorId + GetErrorMsg)
 
-所有导出函数必须 (MUST) 以 `int` 返回错误码，并通过输出参数 `msg_error` 返回错误消息（三元组）。
+所有导出函数必须 (MUST) 以 `int` 返回错误结果：`0` 表示成功，非 `0` 表示失败并作为全局唯一的 **errorId**。
 
-#### Scenario: Error Code + Error Message
+#### Scenario: Export Function Returns ErrorId
 
 - **WHEN** 导出函数执行成功
-- **THEN** 返回值为 `0`，且 `msg_error_len == 0`（或 `msg_error_ptr == NULL`）。
+- **THEN** 返回值必须为 `0`。
 - **WHEN** 导出函数执行失败
-- **THEN** 返回值为非 `0`，且 `msg_error` 三元组包含错误消息，并提供可调用的 `msg_error_free`（允许为 `NULL` 仅当 `msg_error_ptr == NULL`）。
+- **THEN** 返回值必须为非 `0` 的 errorId。
+
+### Requirement: GetErrorMsg Export
+
+生成器必须 (MUST) 生成一个全局导出函数用于根据 errorId 获取错误消息（三元组）。
+
+#### Scenario: GetErrorMsg ABI
+
+- **WHEN** 生成任意导出符号
+- **THEN** 同一生成产物中必须存在如下（或等价）导出函数原型：
+
+```c
+int Ygrpc_GetErrorMsg(int error_id, void** msg_ptr, int* msg_len, FreeFunc* msg_free);
+```
+
+- **AND THEN** `msg_ptr/msg_len/msg_free` 必须遵守 `(ptr,len,free)` 生命周期约定。
+
+#### Scenario: GetErrorMsg TTL
+
+- **GIVEN** 某次导出函数失败并返回 errorId
+- **WHEN** 在 3s 内调用 `Ygrpc_GetErrorMsg(errorId, ...)`
+- **THEN** 必须可获取到对应错误消息。
+- **WHEN** 超过 3s 后调用
+- **THEN** 必须返回 `1` 表示“未找到/已过期”（实现可清理记录）。
+
+### Requirement: Request Free Option
+
+生成器必须 (MUST) 支持在 proto message 上声明一个 option，用于控制该 message 作为 request 时是否需要在导出函数签名中包含 request `free`。
+
+#### Scenario: Option Semantics
+
+- **WHEN** option=0（默认）
+- **THEN** request 不生成 `free` 参数。
+- **WHEN** option=1
+- **THEN** request 必须生成 `free` 参数。
+- **WHEN** option=3
+- **THEN** 必须同时生成两套导出符号（默认 + `_TakeReq`）。
+- **AND THEN** response 侧仍必须始终提供可调用的 `out_free`（不受该 option 影响）。
 
 ### Requirement: Generate C Header
 

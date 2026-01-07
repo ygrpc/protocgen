@@ -12,7 +12,8 @@
 	- **Native Mode**（可选，按消息类型判定）：对“扁平消息”展开字段，跳过序列化。
 - 支持 Unary 与 Streaming（server streaming + client/bidi streaming），两者均提供 Binary + Native 两版本（Native 仅在可用时生成）。
 - ABI 明确生命周期：涉及堆内存的指针参数必须携带释放函数指针；允许输入 free 为空指针。
-- 统一错误模型：函数返回值为错误码；错误信息通过 `msg_error`（三元组）输出参数回传。
+- ABI 支持 request 内存释放策略可配置：默认情况下导出函数签名不包含 request 的 `free` 参数；可通过 message option 强制包含；或生成双版本。
+- 统一错误模型：导出函数返回 `int`（0=成功；非 0=错误 ID）；错误消息不再通过函数签名输出参数返回，而是通过全局导出函数 `GetErrorMsg(error_id, ptr,len,free)` 获取（Go 侧维护全局 map，保存 3s）。
 
 ## Definitions
 
