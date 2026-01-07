@@ -24,6 +24,33 @@ graph LR
     - 所有的 `char*` 必须是 UTF-8 编码。
     - 禁止仅依赖 Null-Terminator，必须显式传递长度。
 
+### 1.1 C 侧基础类型定义位置
+
+所有 ABI 相关的 typedef 必须在生成的 Go 文件的 cgo 注释块（`import "C"` 之前的 `/* ... */`）中定义。
+
+最小要求：
+
+```c
+typedef void (*FreeFunc)(void*);
+```
+
+以及所有使用 `FreeFunc` 的回调 typedef/函数原型，都必须位于该 typedef 之后。
+
+### 1.2 len=0 的约定
+
+对于输入的 `string/bytes` 三元组参数：
+
+- 当 `len == 0` 时，视为“没有传入数据”。Go **不得**读取 `ptr`。
+- 为避免泄漏：若 `ptr != NULL` 且 `free != NULL`，Go **必须**尽早调用 `free(ptr)`。
+
+输出侧由 Go 分配并返回，`len == 0` 表示空字符串/空 bytes，但仍必须返回可调用的释放函数指针（允许返回一个对空指针无操作的 free wrapper）。
+
+### 1.3 错误模型（统一）
+
+- 所有导出函数以 `int` 返回错误码：`0` 表示成功，非 `0` 表示失败。
+- 错误信息通过输出参数 `msg_error` 返回，形态为 `(ptr, len, free)`。
+- 成功时 `msg_error_len == 0`（或 `msg_error_ptr == NULL`），且 `msg_error_free` 可为 `NULL`。
+
 ### 2. 模式 A：二进制模式 (Binary Mode) - 默认
 - **适用场景**: 复杂消息对象，嵌套结构。
 - **签名**: 接收序列化的 Protobuf 二进制 `(req_buf, req_len, req_free)`，返回 `(resp_buf, resp_len, resp_free)`。
@@ -31,6 +58,7 @@ graph LR
 ### 3. 模式 B：原生模式 (Native Mode)
 - **命名**: 接口函数名后缀为 `_Native` (例如 `Service_Method_Native`)。
 - **适用场景**: Request/Response 仅包含基本类型（int, long, double, bool, string, bytes）且无嵌套 Message 的 RPC 方法。
+- **限制**: 不支持 `optional` / `map` / `enum` / `repeated` / `oneof`。遇到这些字段时仅生成 Binary 接口。
 - **映射规则**:
     - **基本数值**: 直接映射 (`int32` -> `int`, `int64` -> `long long`, `double` -> `double`)。
     - **String/Bytes**: 展开为三元组 `(char* ptr, int len, FreeFunc free)`。
@@ -58,7 +86,17 @@ int MyService_Login_Native(
 ```
 
 ### 4. 流式定义
-流式接口也支持 Native 模式，`OnRead` 回调将展开参数列表。
+
+流式接口同时支持 Binary 与 Native 两个版本：
+
+- **Binary streaming**：`OnRead` 回调以 `(ptr,len,free)` 推送每条消息的 protobuf bytes。
+- **Native streaming**：当消息满足 flat 限制时，`OnRead` 回调以“展开字段参数列表”的形式推送。
+
+#### 生命周期与关闭
+
+- streaming 导出函数不得阻塞调用线程（在 goroutine 内执行业务 handler）。
+- 必须提供显式的 `Cancel/Close/Free` 入口以结束流并释放句柄。
+- 必须定义回调线程模型：回调从 Go 发起调用，C 侧回调实现必须是线程安全的；同一 stream 上回调调用顺序必须是串行的（避免并发重入）。
 
 ## 内存管理细节 (Memory Management Details)
 对于 `string` 类型的字段，无论是 Binary Mode 还是 Native Mode，都严禁简化处理：

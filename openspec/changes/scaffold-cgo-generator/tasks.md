@@ -1,13 +1,59 @@
-- [ ] 脚手架与基础 (Scaffolding & Basics)
-    - [ ] 创建 `cmd/protoc-gen-ygrpc-cgo` 目录及 `main.go`。
-- [ ] 核心：二进制模式 (Binary Mode)
-    - [ ] 实现基础的 `(ptr, len, free)` 交换逻辑。这一逻辑将是所有模式的基础。
-- [ ] 核心：原生模式 (Native Mode)
-    - [ ] [Analysis] 实现 Message 结构分析器，判断是否为“扁平”结构。
-    - [ ] [Template] 实现 Unary 展开参数的模板生成逻辑，生成 `_Native` 后缀函数。
-    - [ ] [Logic] 实现 String/Bytes 字段展开为三元组 `(ptr, len, free)` 的逻辑。
-    - [ ] [Logic] Go 侧直接 Struct 赋值/取值逻辑 (替代 Unmarshal/Marshal)。
-- [ ] 验证测试 (Verification)
-    - [ ] 编写包含扁平 Message 的 Proto。
-    - [ ] 验证生成的 `_Native` 接口包含正确的三元组参数。
-    - [ ] 验证 C 调用 Native 接口并正确管理内存。
+## 1. Scaffolding & Plumbing
+
+- [ ] 1.1 新增插件入口目录与最小可运行框架
+    - 交付物：`cmd/protoc-gen-ygrpc-cgo/main.go` 能作为标准 `protoc` 插件从 stdin 读 request、向 stdout 写 response。
+    - 验收点：`go test ./...`（或至少 `go test ./cmd/...`）通过；手工运行 `protoc --ygrpc-cgo_out=.` 能产出空/最小文件而不崩溃。
+
+## 2. Binary Mode（Unary）
+
+- [ ] 2.1 定义并生成基础 ABI 类型（FreeFunc / Buf 三元组）
+    - 交付物：生成的 Go 文件包含 `import "C"` 的 cgo 注释块，内含 `typedef void (*FreeFunc)(void*);` 及相关 struct/声明。
+    - 验收点：生成代码 `go test` 可编译（至少到 cgo 语法层面，不要求链接到真实 C 程序）。
+
+- [ ] 2.2 生成 Unary 的 Binary 接口（必有）
+    - 交付物：每个 unary rpc 生成一个导出函数，签名使用 `(ptr, len, free)` 作为输入与输出。
+    - 验收点：对 sample proto 生成的头文件/Go 导出函数名与参数满足 change specs（`cgo-interop`）。
+
+- [ ] 2.3 统一错误模型（Binary）
+    - 交付物：导出函数以 `int` 错误码返回；错误信息通过 `msg_error`（三元组）输出。
+    - 验收点：生成的 C 原型出现 `msg_error` 输出参数；文档/注释说明错误码=0 成功。
+
+## 3. Native Mode（Unary）
+
+- [ ] 3.1 Flat Message 判定器
+    - 交付物：实现“仅基本标量字段、且不含 optional/map/enum/repeated/oneof/嵌套 message”的判定。
+    - 验收点：sample proto 同时包含支持与不支持的 message；支持的 rpc 生成 `_Native`，不支持的不生成。
+
+- [ ] 3.2 Native 接口签名生成（含 string/bytes 三元组）
+    - 交付物：对 flat rpc 生成 `*_Native` 导出函数，string/bytes 展开为 `(ptr, len, free)`。
+    - 验收点：生成的 C 原型字段顺序与三元组形态满足 change specs（`cgo-interop`）。
+
+- [ ] 3.3 Native 的 Go 侧装配逻辑
+    - 交付物：Go 侧直接构造 request struct、读取 response struct（替代 marshal/unmarshal）。
+    - 验收点：至少对一条 unary rpc 的 generated code 走通编译与基础单测（如有）。
+
+## 4. Streaming（Binary + Native）
+
+- [ ] 4.1 生成 Streaming 的回调 typedef 与句柄类型
+    - 交付物：头文件包含 `OnRead` / `OnDone` 等回调 typedef；包含 stream handle 的不透明类型/约定。
+    - 验收点：原型满足 change specs（`streaming`），且 `FreeFunc` 在这些 typedef 之前已定义。
+
+- [ ] 4.2 Server streaming：Binary 版本
+    - 交付物：导出函数接收请求 buf 与回调，在 goroutine 内执行并通过 onRead 推送。
+    - 验收点：生成的函数签名、回调参数包含 `(ptr,len,free)` 三元组。
+
+- [ ] 4.3 Server streaming：Native 版本（flat 可用时生成）
+    - 交付物：`*_Native` 版本导出函数，输入/输出都按 native 展开，并用回调推送。
+    - 验收点：对 flat rpc 生成 native streaming 原型。
+
+- [ ] 4.4 Client/Bidi streaming：Binary + Native 版本
+    - 交付物：Start 返回句柄；提供 Send/Close/Cancel/Free 等操作；Native 版本按规则生成。
+    - 验收点：原型与生命周期要求写进生成的头文件注释/README 片段。
+
+## 5. Verification（Sample Protos）
+
+- [ ] 5.1 新增 sample proto 覆盖 unary + streaming、flat + non-flat
+    - 验收点：能用 `protoc` 触发生成并产出可检视的 C 头文件。
+
+- [ ] 5.2 最小集成验证（可先仅编译级）
+    - 验收点：`go test ./...` 通过；至少检查生成物包含所需符号与参数形态。

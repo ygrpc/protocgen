@@ -1,26 +1,36 @@
 # 脚手架 CGO 生成器 (Scaffold CGO Generator)
 
-## 目标 (Goal)
+## Why
 
-创建一个新的 `protoc` 插件 `protoc-gen-ygrpc-cgo`，用于将 Go 实现的 RPC 服务导出为 C 接口。
+需要一个新的 `protoc` 插件 `protoc-gen-ygrpc-cgo`，将 Go 实现的 RPC 服务以稳定的 C ABI 导出，便于非 Go 进程/语言集成。
 
-## 能力 (Capabilities)
+## What Changes
 
-### 1. 基础 CGO 导出
+- 新增 `cmd/protoc-gen-ygrpc-cgo`：实现标准 `protoc` 插件入口。
+- 生成两类接口：
+	- **Binary Mode**（默认，必有）：通过 Protobuf 二进制进行请求/响应交换。
+	- **Native Mode**（可选，按消息类型判定）：对“扁平消息”展开字段，跳过序列化。
+- 支持 Unary 与 Streaming（server streaming + client/bidi streaming），两者均提供 Binary + Native 两版本（Native 仅在可用时生成）。
+- ABI 明确生命周期：涉及堆内存的指针参数必须携带释放函数指针；允许输入 free 为空指针。
+- 统一错误模型：函数返回值为错误码；错误信息通过 `msg_error`（三元组）输出参数回传。
 
-- 支持 Unary 和 Streaming 调用。
-- 支持基于 Protobuf 二进制数据的标准交换模式。
+## Definitions
 
-### 2. 原生模式 (Native Mode)
+### Flat Message（Native Mode 判定）
 
-- **需求**: 对于仅包含基本类型（数值、字符串、字节）的扁平消息，支持跳过序列化步骤，直接通过 C 函数参数传递字段值。
-- **命名**: 生成后缀为 `_Native` 的接口。
-- **场景**: 高频调用的简单接口，提升性能。
+仅支持 Go/Protobuf 的基本标量字段：数值（各类 int/uint/sint/fixed）、`bool`、`string`、`bytes`。
 
-### 3. 显式生命周期管理
+不支持（遇到则 **不生成** Native 接口，仅生成 Binary 接口）：`enum`、`optional`、`repeated`、`map`、`oneof`、任何嵌套 `message`。
 
-- 所有堆内存传递必须携带释放函数。
+## Impact
 
-## 变更 ID (Change ID)
+- Affected change specs:
+	- `cgo-interop`
+	- `streaming`
+- Affected code:
+	- 新增 `cmd/protoc-gen-ygrpc-cgo/main.go`
+	- 复用或扩展现有 `protocplugin/` 的通用能力（按需要最小化修改）
+
+## Change ID
 
 `scaffold-cgo-generator`
