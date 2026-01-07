@@ -1,13 +1,13 @@
 ## 1. Scaffolding & Plumbing
 
-- [ ] 1.1 新增插件入口目录与最小可运行框架
+- [x] 1.1 新增插件入口目录与最小可运行框架
     - 交付物：`cmd/protoc-gen-ygrpc-cgo/main.go` 能作为标准 `protoc` 插件从 stdin 读 request、向 stdout 写 response。
     - 验收点：`go test ./...`（或至少 `go test ./cmd/...`）通过；手工运行 `protoc --ygrpc-cgo_out=.` 能产出空/最小文件而不崩溃。
 
 ## 2. Binary Mode（Unary）
 
-- [ ] 2.1 定义并生成基础 ABI 类型（FreeFunc / Buf 三元组）
-    - 交付物：生成的 Go 文件包含 `import "C"` 的 cgo 注释块，内含 `typedef void (*FreeFunc)(void*);` 及相关 struct/声明。
+- [x] 2.1 定义并生成基础 ABI 类型（FreeFunc / Buf 三元组）
+    - 交付物：生成的 Go 文件包含 `import "C"` 的 cgo 注释块，内含 `typedef void (*FreeFunc)(void*);` 及相关声明（不使用 C struct，三元组通过参数列表表达）。
     - 验收点：生成代码 `go test` 可编译（至少到 cgo 语法层面，不要求链接到真实 C 程序）。
 
 - [ ] 2.2 生成 Unary 的 Binary 接口（必有）

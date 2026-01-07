@@ -36,6 +36,16 @@ func protocCgoHandler(request *pluginpb.CodeGeneratorRequest) (genFiles []*plugi
 // source: %s
 
 package ygrpc_cgo
+
+/*
+#include <stdlib.h>
+
+typedef void (*FreeFunc)(void*);
+
+// NOTE: This generator intentionally avoids C structs for ABI stability.
+// All bytes/string values use the (ptr, len, free) triple in function parameters.
+*/
+import "C"
 `, originalFile)
 
 		genFiles = append(genFiles, &pluginpb.CodeGeneratorResponse_File{
