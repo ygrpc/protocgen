@@ -11,10 +11,10 @@
     - 验收点：生成代码 `go test` 可编译（至少到 cgo 语法层面，不要求链接到真实 C 程序）。
 
 - [x] 2.2 生成 Unary 的 Binary 接口（必有）
-    - 交付物：每个 unary rpc 生成一个导出函数，签名使用 `(ptr, len, free)` 作为输入与输出。
+    - 交付物：每个 unary rpc 生成一个导出函数，request 默认使用 `(ptr, len)` 输入，response 使用 `(ptr, len, free)` 输出。
     - 验收点：对 sample proto 编译生成的 cgo 头文件（buildmode=c-shared 自动产出）/Go 导出函数名与参数满足 change specs（`cgo-interop`）。
 
-- [ ] 2.3 统一错误模型（Binary）：ErrorId + GetErrorMsg
+- [x] 2.3 统一错误模型（Binary）：ErrorId + GetErrorMsg
     - 交付物：导出函数返回 `int`（0=成功；非 0=errorId）；不再在函数签名中输出错误消息；额外生成 `Ygrpc_GetErrorMsg(errorId, ptr,len,free)`。
     - 验收点：生成的 C 原型不再出现 `msg_error` 输出参数；存在 `Ygrpc_GetErrorMsg` 原型；文档/注释说明 errorId 的 3s 有效期。
 

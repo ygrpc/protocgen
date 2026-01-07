@@ -24,6 +24,7 @@ func main() {
 }
 
 func protocCgoHandler(request *pluginpb.CodeGeneratorRequest) (genFiles []*pluginpb.CodeGeneratorResponse_File) {
+	emitRuntime := true
 	for _, fd := range request.GetProtoFile() {
 		if !slices.Contains(request.FileToGenerate, fd.GetName()) {
 			continue
@@ -33,7 +34,8 @@ func protocCgoHandler(request *pluginpb.CodeGeneratorRequest) (genFiles []*plugi
 		originalFilenameOnly := protocplugin.ExtractFilename(originalFile)
 		goOutName := "ygrpc_cgo/" + originalFilenameOnly + ".ygrpc.cgo.go"
 
-		goContent := buildBinaryUnaryGoFile(fd)
+		goContent := buildBinaryUnaryGoFile(fd, emitRuntime)
+		emitRuntime = false
 
 		genFiles = append(genFiles, &pluginpb.CodeGeneratorResponse_File{
 			Name:    proto.String(goOutName),
@@ -44,7 +46,7 @@ func protocCgoHandler(request *pluginpb.CodeGeneratorRequest) (genFiles []*plugi
 	return genFiles
 }
 
-func buildBinaryUnaryGoFile(fd *descriptorpb.FileDescriptorProto) string {
+func buildBinaryUnaryGoFile(fd *descriptorpb.FileDescriptorProto, emitRuntime bool) string {
 	b := &strings.Builder{}
 
 	fmt.Fprintf(b, "//go:build ygrpc_cgo\n")
@@ -55,12 +57,80 @@ func buildBinaryUnaryGoFile(fd *descriptorpb.FileDescriptorProto) string {
 
 	fmt.Fprintf(b, "/*\n")
 	fmt.Fprintf(b, "#include <stdlib.h>\n\n")
-	fmt.Fprintf(b, "typedef void (*FreeFunc)(void*);\n\n")
+	fmt.Fprintf(b, "typedef void (*FreeFunc)(void*);\n")
+	fmt.Fprintf(b, "static void ygrpc_free(void* p) { free(p); }\n\n")
 	fmt.Fprintf(b, "// NOTE: This generator intentionally avoids C structs for ABI stability.\n")
 	fmt.Fprintf(b, "// All bytes/string values use the (ptr, len, free) triple in function parameters.\n")
 	fmt.Fprintf(b, "*/\n")
 	fmt.Fprintf(b, "import \"C\"\n")
+	if emitRuntime {
+		fmt.Fprintf(b, "import (\n")
+		fmt.Fprintf(b, "\t\"sync\"\n")
+		fmt.Fprintf(b, "\t\"sync/atomic\"\n")
+		fmt.Fprintf(b, "\t\"time\"\n")
+		fmt.Fprintf(b, ")\n")
+	}
 	fmt.Fprintf(b, "import \"unsafe\"\n\n")
+
+	if emitRuntime {
+		fmt.Fprintf(b, "type ygrpcErrorEntry struct {\n")
+		fmt.Fprintf(b, "\tmsg []byte\n")
+		fmt.Fprintf(b, "\texpiresAt time.Time\n")
+		fmt.Fprintf(b, "}\n\n")
+		fmt.Fprintf(b, "var (\n")
+		fmt.Fprintf(b, "\tygrpcErrMu sync.Mutex\n")
+		fmt.Fprintf(b, "\tygrpcErrNextID uint32\n")
+		fmt.Fprintf(b, "\tygrpcErrMap = map[uint32]ygrpcErrorEntry{}\n")
+		fmt.Fprintf(b, ")\n\n")
+		fmt.Fprintf(b, "func ygrpcStoreError(msg []byte) C.int {\n")
+		fmt.Fprintf(b, "\tif len(msg) == 0 {\n")
+		fmt.Fprintf(b, "\t\treturn 0\n")
+		fmt.Fprintf(b, "\t} else {\n")
+		fmt.Fprintf(b, "\t\tid := atomic.AddUint32(&ygrpcErrNextID, 1)\n")
+		fmt.Fprintf(b, "\t\tif id == 0 {\n")
+		fmt.Fprintf(b, "\t\t\tid = atomic.AddUint32(&ygrpcErrNextID, 1)\n")
+		fmt.Fprintf(b, "\t\t} else {\n")
+		fmt.Fprintf(b, "\t\t\t// keep id\n")
+		fmt.Fprintf(b, "\t\t}\n")
+		fmt.Fprintf(b, "\t\tygrpcErrMu.Lock()\n")
+		fmt.Fprintf(
+			b,
+			"\t\tygrpcErrMap[id] = ygrpcErrorEntry{msg: append([]byte(nil), msg...), expiresAt: time.Now().Add(3 * time.Second)}\n",
+		)
+		fmt.Fprintf(b, "\t\tygrpcErrMu.Unlock()\n")
+		fmt.Fprintf(b, "\t\treturn C.int(id)\n")
+		fmt.Fprintf(b, "\t}\n")
+		fmt.Fprintf(b, "}\n\n")
+
+		fmt.Fprintf(b, "// Ygrpc_GetErrorMsg returns 0 when found, or 1 when not found/expired.\n")
+		fmt.Fprintf(b, "//export Ygrpc_GetErrorMsg\n")
+		fmt.Fprintf(
+			b,
+			"func Ygrpc_GetErrorMsg(errorID C.int, msgPtr *unsafe.Pointer, msgLen *C.int, msgFree *C.FreeFunc) C.int {\n",
+		)
+		fmt.Fprintf(b, "\tif msgPtr != nil {\n\t\t*msgPtr = nil\n\t}\n")
+		fmt.Fprintf(b, "\tif msgLen != nil {\n\t\t*msgLen = 0\n\t}\n")
+		fmt.Fprintf(b, "\tif msgFree != nil {\n\t\t*msgFree = nil\n\t}\n")
+		fmt.Fprintf(b, "\tif errorID == 0 {\n\t\treturn 1\n\t} else {\n\t\t// keep going\n\t}\n")
+		fmt.Fprintf(b, "\n\tid := uint32(errorID)\n")
+		fmt.Fprintf(b, "\tnow := time.Now()\n")
+		fmt.Fprintf(b, "\tygrpcErrMu.Lock()\n")
+		fmt.Fprintf(b, "\tentry, ok := ygrpcErrMap[id]\n")
+		fmt.Fprintf(b, "\tif ok && now.After(entry.expiresAt) {\n")
+		fmt.Fprintf(b, "\t\tdelete(ygrpcErrMap, id)\n")
+		fmt.Fprintf(b, "\t\tok = false\n")
+		fmt.Fprintf(b, "\t} else {\n")
+		fmt.Fprintf(b, "\t\t// keep ok\n")
+		fmt.Fprintf(b, "\t}\n")
+		fmt.Fprintf(b, "\tygrpcErrMu.Unlock()\n\n")
+		fmt.Fprintf(b, "\tif !ok {\n\t\treturn 1\n\t} else {\n\t\t// keep going\n\t}\n")
+		fmt.Fprintf(b, "\n\tbuf := C.CBytes(entry.msg)\n")
+		fmt.Fprintf(b, "\tif msgPtr != nil {\n\t\t*msgPtr = buf\n\t} else {\n\t\tC.ygrpc_free(buf)\n\t}\n")
+		fmt.Fprintf(b, "\tif msgLen != nil {\n\t\t*msgLen = C.int(len(entry.msg))\n\t}\n")
+		fmt.Fprintf(b, "\tif msgFree != nil {\n\t\t*msgFree = (C.FreeFunc)(C.ygrpc_free)\n\t}\n")
+		fmt.Fprintf(b, "\treturn 0\n")
+		fmt.Fprintf(b, "}\n\n")
+	}
 
 	for _, svc := range fd.GetService() {
 		serviceName := svc.GetName()
@@ -85,18 +155,35 @@ func buildBinaryUnaryGoFile(fd *descriptorpb.FileDescriptorProto) string {
 			fmt.Fprintf(b, "//   rpc %s(%s) returns (%s);\n", m.GetName(), reqType, respType)
 			fmt.Fprintf(b, "//\n")
 			fmt.Fprintf(b, "// ABI (no C structs):\n")
-			fmt.Fprintf(b, "//   - bytes are passed as a (ptr, len, free) triple.\n")
-			fmt.Fprintf(b, "//   - %s* contains serialized %s protobuf bytes.\n", reqMsg, reqType)
-			fmt.Fprintf(b, "//   - %s* must be set to serialized %s protobuf bytes.\n", respMsg, respType)
+			fmt.Fprintf(b, "//   - Response bytes are returned as a (ptr, len, free) triple.\n")
+			fmt.Fprintf(b, "//   - Request bytes are passed as a (ptr, len) pair by default.\n")
+			fmt.Fprintf(
+				b,
+				"//   - %sPtr/%sLen contains serialized %s protobuf bytes.\n",
+				reqMsg,
+				reqMsg,
+				reqType,
+			)
+			fmt.Fprintf(
+				b,
+				"//   - %sPtr/%sLen/%sFree must be set to serialized %s protobuf bytes (output params).\n",
+				respMsg,
+				respMsg,
+				respMsg,
+				respType,
+			)
 			fmt.Fprintf(b, "//\n")
 			fmt.Fprintf(b, "// Return:\n")
-			fmt.Fprintf(b, "//   - 0 on success; non-zero on failure.\n")
+			fmt.Fprintf(b, "//   - 0 on success; non-zero is an errorId.\n")
+			fmt.Fprintf(b, "//\n")
+			fmt.Fprintf(b, "// Error reporting:\n")
+			fmt.Fprintf(b, "//   - Use Ygrpc_GetErrorMsg(errorId, ...) within 3s to fetch the message.\n")
+
 			fmt.Fprintf(b, "//export %s\n", funcName)
 			fmt.Fprintf(
 				b,
-				"func %s(%sPtr unsafe.Pointer, %sLen C.int, %sFree C.FreeFunc, %sPtr *unsafe.Pointer, %sLen *C.int, %sFree *C.FreeFunc) C.int {\n",
+				"func %s(%sPtr unsafe.Pointer, %sLen C.int, %sPtr *unsafe.Pointer, %sLen *C.int, %sFree *C.FreeFunc) C.int {\n",
 				funcName,
-				reqMsg,
 				reqMsg,
 				reqMsg,
 				respMsg,
@@ -105,7 +192,6 @@ func buildBinaryUnaryGoFile(fd *descriptorpb.FileDescriptorProto) string {
 			)
 			fmt.Fprintf(b, "\t_ = %sPtr\n", reqMsg)
 			fmt.Fprintf(b, "\t_ = %sLen\n", reqMsg)
-			fmt.Fprintf(b, "\t_ = %sFree\n", reqMsg)
 			fmt.Fprintf(b, "\tif %sPtr != nil {\n\t\t*%sPtr = nil\n\t}\n", respMsg, respMsg)
 			fmt.Fprintf(b, "\tif %sLen != nil {\n\t\t*%sLen = 0\n\t}\n", respMsg, respMsg)
 			fmt.Fprintf(b, "\tif %sFree != nil {\n\t\t*%sFree = nil\n\t}\n", respMsg, respMsg)
@@ -114,9 +200,11 @@ func buildBinaryUnaryGoFile(fd *descriptorpb.FileDescriptorProto) string {
 		}
 	}
 
-	fmt.Fprintf(b, "// main is required when building with -buildmode=c-shared / c-archive.\n")
-	fmt.Fprintf(b, "// It is intentionally empty.\n")
-	fmt.Fprintf(b, "func main() {}\n")
+	if emitRuntime {
+		fmt.Fprintf(b, "// main is required when building with -buildmode=c-shared / c-archive.\n")
+		fmt.Fprintf(b, "// It is intentionally empty.\n")
+		fmt.Fprintf(b, "func main() {}\n")
+	}
 
 	return b.String()
 }

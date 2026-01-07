@@ -108,6 +108,18 @@ func TestGeneratedCodeBuildsCShared(t *testing.T) {
 	if !bytes.Contains(headerBytes, []byte("TestService_Ping")) {
 		t.Fatalf("expected exported symbol not found in header: %s", headerPath)
 	}
+	if !bytes.Contains(headerBytes, []byte("PingResponsePtr")) {
+		t.Fatalf("expected response triple not found in header: %s", headerPath)
+	}
+	if bytes.Contains(headerBytes, []byte("MsgErrorPtr")) {
+		t.Fatalf("expected msg_error triple to be absent in header: %s", headerPath)
+	}
+	if bytes.Contains(headerBytes, []byte("PingRequestFree")) {
+		t.Fatalf("expected request free param to be absent in header: %s", headerPath)
+	}
+	if !bytes.Contains(headerBytes, []byte("Ygrpc_GetErrorMsg")) {
+		t.Fatalf("expected Ygrpc_GetErrorMsg to be present in header: %s", headerPath)
+	}
 
 	pruneArtifactDirs(t, artifactsRoot, 10)
 }
