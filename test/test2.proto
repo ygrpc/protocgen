@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package cgotest;
+
+option go_package = "github.com/ygrpc/protocgen/test;cgotest";
+
+service OtherService {
+  rpc Hello(HelloRequest) returns (HelloResponse);
+}
+
+message HelloRequest {
+  string name = 1;
+}
+
+message HelloResponse {
+  bytes data = 1;
+}

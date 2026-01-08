@@ -89,6 +89,30 @@ func buildBinaryUnaryRuntimeGoFile() string {
 	fmt.Fprintf(b, "\t\"unsafe\"\n")
 	fmt.Fprintf(b, ")\n\n")
 
+	fmt.Fprintf(b, "func ygrpcReadString(ptr unsafe.Pointer, n C.int) string {\n")
+	fmt.Fprintf(b, "\tif n == 0 {\n\t\treturn \"\"\n\t}\n")
+	fmt.Fprintf(b, "\tif ptr == nil {\n\t\treturn \"\"\n\t}\n")
+	fmt.Fprintf(b, "\treturn C.GoStringN((*C.char)(ptr), n)\n")
+	fmt.Fprintf(b, "}\n\n")
+
+	fmt.Fprintf(b, "func ygrpcReadBytes(ptr unsafe.Pointer, n C.int) []byte {\n")
+	fmt.Fprintf(b, "\tif n == 0 {\n\t\treturn nil\n\t}\n")
+	fmt.Fprintf(b, "\tif ptr == nil {\n\t\treturn nil\n\t}\n")
+	fmt.Fprintf(b, "\treturn C.GoBytes(ptr, n)\n")
+	fmt.Fprintf(b, "}\n\n")
+
+	fmt.Fprintf(
+		b,
+		"func ygrpcWriteOutBytes(outPtr *unsafe.Pointer, outLen *C.int, outFree *C.FreeFunc, data []byte) {\n",
+	)
+	fmt.Fprintf(b, "\tif outPtr != nil {\n")
+	fmt.Fprintf(b, "\t\tif len(data) == 0 {\n\t\t\t*outPtr = nil\n\t\t} else {\n")
+	fmt.Fprintf(b, "\t\t\t*outPtr = C.CBytes(data)\n\t\t}\n")
+	fmt.Fprintf(b, "\t}\n")
+	fmt.Fprintf(b, "\tif outLen != nil {\n\t\t*outLen = C.int(len(data))\n\t}\n")
+	fmt.Fprintf(b, "\tif outFree != nil {\n\t\t*outFree = C.ygrpc_get_free_func()\n\t}\n")
+	fmt.Fprintf(b, "}\n\n")
+
 	fmt.Fprintf(b, "type ygrpcErrorEntry struct {\n")
 	fmt.Fprintf(b, "\tmsg []byte\n")
 	fmt.Fprintf(b, "\texpiresAt time.Time\n")
@@ -186,30 +210,6 @@ func buildBinaryUnaryProtoGoFile(
 	fmt.Fprintf(b, "*/\n")
 	fmt.Fprintf(b, "import \"C\"\n")
 	fmt.Fprintf(b, "import \"unsafe\"\n\n")
-
-	fmt.Fprintf(b, "func ygrpcReadString(ptr unsafe.Pointer, n C.int) string {\n")
-	fmt.Fprintf(b, "\tif n == 0 {\n\t\treturn \"\"\n\t}\n")
-	fmt.Fprintf(b, "\tif ptr == nil {\n\t\treturn \"\"\n\t}\n")
-	fmt.Fprintf(b, "\treturn C.GoStringN((*C.char)(ptr), n)\n")
-	fmt.Fprintf(b, "}\n\n")
-
-	fmt.Fprintf(b, "func ygrpcReadBytes(ptr unsafe.Pointer, n C.int) []byte {\n")
-	fmt.Fprintf(b, "\tif n == 0 {\n\t\treturn nil\n\t}\n")
-	fmt.Fprintf(b, "\tif ptr == nil {\n\t\treturn nil\n\t}\n")
-	fmt.Fprintf(b, "\treturn C.GoBytes(ptr, n)\n")
-	fmt.Fprintf(b, "}\n\n")
-
-	fmt.Fprintf(
-		b,
-		"func ygrpcWriteOutBytes(outPtr *unsafe.Pointer, outLen *C.int, outFree *C.FreeFunc, data []byte) {\n",
-	)
-	fmt.Fprintf(b, "\tif outPtr != nil {\n")
-	fmt.Fprintf(b, "\t\tif len(data) == 0 {\n\t\t\t*outPtr = nil\n\t\t} else {\n")
-	fmt.Fprintf(b, "\t\t\t*outPtr = C.CBytes(data)\n\t\t}\n")
-	fmt.Fprintf(b, "\t}\n")
-	fmt.Fprintf(b, "\tif outLen != nil {\n\t\t*outLen = C.int(len(data))\n\t}\n")
-	fmt.Fprintf(b, "\tif outFree != nil {\n\t\t*outFree = C.ygrpc_get_free_func()\n\t}\n")
-	fmt.Fprintf(b, "}\n\n")
 
 	for _, svc := range fd.GetService() {
 		serviceName := svc.GetName()

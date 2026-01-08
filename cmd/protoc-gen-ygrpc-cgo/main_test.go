@@ -71,22 +71,28 @@ func TestGeneratedCodeBuildsCShared(t *testing.T) {
 	}
 
 	protoDir := filepath.Join(repoRoot, "test")
-	protoFile := filepath.Join(protoDir, "test.proto")
+	protoFile1 := filepath.Join(protoDir, "test.proto")
+	protoFile2 := filepath.Join(protoDir, "test2.proto")
 
 	protocCmd := exec.Command(
 		"protoc",
 		"-I", protoDir,
 		"--plugin=protoc-gen-ygrpc-cgo="+pluginPath,
 		"--ygrpc-cgo_out="+genDir,
-		protoFile,
+		protoFile1,
+		protoFile2,
 	)
 	protocCmd.Env = os.Environ()
 	if out, err := protocCmd.CombinedOutput(); err != nil {
 		t.Fatalf("protoc generation failed: %v\n%s", err, out)
 	}
 
-	generatedGo := filepath.Join(genDir, "ygrpc_cgo", "test.ygrpc.cgo.go")
-	if _, err := os.Stat(generatedGo); err != nil {
+	generatedGo1 := filepath.Join(genDir, "ygrpc_cgo", "test.ygrpc.cgo.go")
+	if _, err := os.Stat(generatedGo1); err != nil {
+		t.Fatalf("expected generated file missing: %v", err)
+	}
+	generatedGo2 := filepath.Join(genDir, "ygrpc_cgo", "test2.ygrpc.cgo.go")
+	if _, err := os.Stat(generatedGo2); err != nil {
 		t.Fatalf("expected generated file missing: %v", err)
 	}
 
