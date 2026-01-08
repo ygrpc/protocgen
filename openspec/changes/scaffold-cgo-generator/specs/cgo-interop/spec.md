@@ -20,6 +20,12 @@
 - **WHEN** 某个 RPC 的 request/response 满足 Native Mode 可用条件
 - **THEN** 仍必须同时生成 Binary 接口（接受 protobuf bytes 三元组），不得仅生成 Native 接口。
 
+#### Scenario: Binary ABI Param Names Include Message Types
+
+- **WHEN** 生成 Binary 模式导出函数
+- **THEN** request 侧 `(ptr,len[,free])` 参数名必须包含 request 消息类型名，并使用 `in*` 前缀（例如 `inPingRequestPtr/inPingRequestLen[/inPingRequestFree]`）。
+- **AND THEN** response 侧 `(ptr,len,free)` 输出参数名必须包含 response 消息类型名，并使用 `out*` 前缀（例如 `outPingResponsePtr/outPingResponseLen/outPingResponseFree`）。
+
 ### Requirement: Native Arguments Support
 
 对于仅仅包含基本类型的扁平消息，插件必须 (MUST) 额外生成一个 "Native" 版本的接口。
@@ -117,7 +123,7 @@ int Ygrpc_GetErrorMsg(int error_id, void** msg_ptr, int* msg_len, FreeFunc* msg_
 
 ### Requirement: Request Free Option
 
-生成器必须 (MUST) 支持在 proto message 上声明一个 option，用于控制该 message 作为 request 时是否需要在导出函数签名中包含 request `free`。
+生成器必须 (MUST) 支持通过 file/method option 配置 request free 策略，用于控制某个方法的 request 作为输入时是否需要在导出函数签名中包含 request `free`。
 
 #### Scenario: Option Semantics
 

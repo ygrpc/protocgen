@@ -60,7 +60,8 @@ int Ygrpc_GetErrorMsg(int error_id, void** msg_ptr, int* msg_len, FreeFunc* msg_
 ### 1.4 Request Free 参数策略
 
 - **默认**：导出函数签名不包含 request 的 `free` 参数（即 C 侧自行管理 request 内存；Go 不得释放）。
-- **可选**：通过在 request message 上声明自定义 option，控制 request free 的导出策略：
+
+- **可选**：通过 file/method 自定义 option 控制 request free 的导出策略（method 优先）：
     - option=0（默认）：仅生成默认符号，不包含 request `free`。
     - option=1：仅生成 `_TakeReq` 符号，包含 request `free`。
     - option=2：同时生成默认符号 + `_TakeReq` 符号。
@@ -76,7 +77,7 @@ int Ygrpc_GetErrorMsg(int error_id, void** msg_ptr, int* msg_len, FreeFunc* msg_
 - **限制**: 不支持 `optional` / `map` / `enum` / `repeated` / `oneof`。遇到这些字段时仅生成 Binary 接口。
 - **映射规则**:
     - **基本数值**: 直接映射 (`int32` -> `int`, `int64` -> `long long`, `double` -> `double`)。
-    - **String/Bytes**: 展开为三元组 `(char* ptr, int len, FreeFunc free)`。
+    - **String/Bytes**: 默认展开为二元组 `(char* ptr, int len)`；当生成 `*_TakeReq` 版本时才额外包含 `FreeFunc free`。
 - **实现逻辑**:
     - Go 导出函数接收展开后的参数。
     - Go 内部构造 Go Struct。
@@ -91,12 +92,22 @@ int Ygrpc_GetErrorMsg(int error_id, void** msg_ptr, int* msg_len, FreeFunc* msg_
 ```c
 int MyService_Login_Native(
     // Input Fields
-    const char* user, int user_len, FreeFunc user_free, // String 展开为三元组
+    const char* user, int user_len,                     // String 默认展开为二元组
     int age,                                            // Int 直接传递
 
     // Output Fields
     int* code,                                          // Int 输出
     char** msg, int* msg_len, FreeFunc* msg_free        // String 输出展开为三元组
+);
+
+int MyService_Login_Native_TakeReq(
+    // Input Fields
+    const char* user, int user_len, FreeFunc user_free, // TakeReq 版本才包含 free
+    int age,
+
+    // Output Fields
+    int* code,
+    char** msg, int* msg_len, FreeFunc* msg_free
 );
 ```
 

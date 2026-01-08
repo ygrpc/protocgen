@@ -75,7 +75,10 @@ func buildBinaryUnaryRuntimeGoFile() string {
 	fmt.Fprintf(b, "#define YGRPC_CGO_FREEFUNC_DEFINED\n")
 	fmt.Fprintf(b, "typedef void (*FreeFunc)(void*);\n")
 	fmt.Fprintf(b, "#endif\n")
-	fmt.Fprintf(b, "static FreeFunc ygrpc_get_free_func(void) { return free; }\n")
+	fmt.Fprintf(b, "#ifndef YGRPC_CGO_GET_FREE_FUNC_DEFINED\n")
+	fmt.Fprintf(b, "#define YGRPC_CGO_GET_FREE_FUNC_DEFINED\n")
+	fmt.Fprintf(b, "static inline FreeFunc ygrpc_get_free_func(void) { return free; }\n")
+	fmt.Fprintf(b, "#endif\n")
 	fmt.Fprintf(b, "*/\n")
 	fmt.Fprintf(b, "import \"C\"\n")
 
@@ -167,9 +170,14 @@ func buildBinaryUnaryProtoGoFile(
 	fmt.Fprintf(b, "package main\n\n")
 
 	fmt.Fprintf(b, "/*\n")
+	fmt.Fprintf(b, "#include <stdlib.h>\n")
 	fmt.Fprintf(b, "#ifndef YGRPC_CGO_FREEFUNC_DEFINED\n")
 	fmt.Fprintf(b, "#define YGRPC_CGO_FREEFUNC_DEFINED\n")
 	fmt.Fprintf(b, "typedef void (*FreeFunc)(void*);\n")
+	fmt.Fprintf(b, "#endif\n")
+	fmt.Fprintf(b, "#ifndef YGRPC_CGO_GET_FREE_FUNC_DEFINED\n")
+	fmt.Fprintf(b, "#define YGRPC_CGO_GET_FREE_FUNC_DEFINED\n")
+	fmt.Fprintf(b, "static inline FreeFunc ygrpc_get_free_func(void) { return free; }\n")
 	fmt.Fprintf(b, "#endif\n")
 	fmt.Fprintf(b, "#ifndef YGRPC_CGO_CALL_FREE_DEFINED\n")
 	fmt.Fprintf(b, "#define YGRPC_CGO_CALL_FREE_DEFINED\n")
@@ -178,6 +186,30 @@ func buildBinaryUnaryProtoGoFile(
 	fmt.Fprintf(b, "*/\n")
 	fmt.Fprintf(b, "import \"C\"\n")
 	fmt.Fprintf(b, "import \"unsafe\"\n\n")
+
+	fmt.Fprintf(b, "func ygrpcReadString(ptr unsafe.Pointer, n C.int) string {\n")
+	fmt.Fprintf(b, "\tif n == 0 {\n\t\treturn \"\"\n\t}\n")
+	fmt.Fprintf(b, "\tif ptr == nil {\n\t\treturn \"\"\n\t}\n")
+	fmt.Fprintf(b, "\treturn C.GoStringN((*C.char)(ptr), n)\n")
+	fmt.Fprintf(b, "}\n\n")
+
+	fmt.Fprintf(b, "func ygrpcReadBytes(ptr unsafe.Pointer, n C.int) []byte {\n")
+	fmt.Fprintf(b, "\tif n == 0 {\n\t\treturn nil\n\t}\n")
+	fmt.Fprintf(b, "\tif ptr == nil {\n\t\treturn nil\n\t}\n")
+	fmt.Fprintf(b, "\treturn C.GoBytes(ptr, n)\n")
+	fmt.Fprintf(b, "}\n\n")
+
+	fmt.Fprintf(
+		b,
+		"func ygrpcWriteOutBytes(outPtr *unsafe.Pointer, outLen *C.int, outFree *C.FreeFunc, data []byte) {\n",
+	)
+	fmt.Fprintf(b, "\tif outPtr != nil {\n")
+	fmt.Fprintf(b, "\t\tif len(data) == 0 {\n\t\t\t*outPtr = nil\n\t\t} else {\n")
+	fmt.Fprintf(b, "\t\t\t*outPtr = C.CBytes(data)\n\t\t}\n")
+	fmt.Fprintf(b, "\t}\n")
+	fmt.Fprintf(b, "\tif outLen != nil {\n\t\t*outLen = C.int(len(data))\n\t}\n")
+	fmt.Fprintf(b, "\tif outFree != nil {\n\t\t*outFree = C.ygrpc_get_free_func()\n\t}\n")
+	fmt.Fprintf(b, "}\n\n")
 
 	for _, svc := range fd.GetService() {
 		serviceName := svc.GetName()
@@ -288,6 +320,15 @@ func emitBinaryUnaryExport(
 	respType string,
 	includeReqFree bool,
 ) {
+	inBase := "in" + reqMsg
+	outBase := "out" + respMsg
+	inPtr := inBase + "Ptr"
+	inLen := inBase + "Len"
+	inFree := inBase + "Free"
+	outPtr := outBase + "Ptr"
+	outLen := outBase + "Len"
+	outFree := outBase + "Free"
+
 	fmt.Fprintf(b, "// %s is the Binary Mode (protobuf bytes) entrypoint for:\n", funcName)
 	fmt.Fprintf(b, "//   rpc %s(%s) returns (%s);\n", rpcName, reqType, respType)
 	fmt.Fprintf(b, "//\n")
@@ -298,13 +339,13 @@ func emitBinaryUnaryExport(
 	} else {
 		fmt.Fprintf(b, "//   - Request bytes are passed as a (ptr, len) pair (default).\n")
 	}
-	fmt.Fprintf(b, "//   - %sPtr/%sLen contains serialized %s protobuf bytes.\n", reqMsg, reqMsg, reqType)
+	fmt.Fprintf(b, "//   - %s/%s contains serialized %s protobuf bytes.\n", inPtr, inLen, reqType)
 	fmt.Fprintf(
 		b,
-		"//   - %sPtr/%sLen/%sFree must be set to serialized %s protobuf bytes (output params).\n",
-		respMsg,
-		respMsg,
-		respMsg,
+		"//   - %s/%s/%s must be set to serialized %s protobuf bytes (output params).\n",
+		outPtr,
+		outLen,
+		outFree,
 		respType,
 	)
 	fmt.Fprintf(b, "//\n")
@@ -318,26 +359,37 @@ func emitBinaryUnaryExport(
 	if includeReqFree {
 		fmt.Fprintf(
 			b,
-			"func %s(inPtr unsafe.Pointer, inLen C.int, inFree C.FreeFunc, outPtr *unsafe.Pointer, outLen *C.int, outFree *C.FreeFunc) C.int {\n",
+			"func %s(%s unsafe.Pointer, %s C.int, %s C.FreeFunc, %s *unsafe.Pointer, %s *C.int, %s *C.FreeFunc) C.int {\n",
 			funcName,
+			inPtr,
+			inLen,
+			inFree,
+			outPtr,
+			outLen,
+			outFree,
 		)
-		fmt.Fprintf(b, "\t_ = inLen\n")
-		fmt.Fprintf(b, "\tif inPtr != nil && inFree != nil {\n")
-		fmt.Fprintf(b, "\t\tC.ygrpc_call_free(inFree, inPtr)\n")
+		fmt.Fprintf(b, "\t_ = %s\n", inLen)
+		fmt.Fprintf(b, "\tif %s != nil && %s != nil {\n", inPtr, inFree)
+		fmt.Fprintf(b, "\t\tC.ygrpc_call_free(%s, %s)\n", inFree, inPtr)
 		fmt.Fprintf(b, "\t}\n")
 	} else {
 		fmt.Fprintf(
 			b,
-			"func %s(inPtr unsafe.Pointer, inLen C.int, outPtr *unsafe.Pointer, outLen *C.int, outFree *C.FreeFunc) C.int {\n",
+			"func %s(%s unsafe.Pointer, %s C.int, %s *unsafe.Pointer, %s *C.int, %s *C.FreeFunc) C.int {\n",
 			funcName,
+			inPtr,
+			inLen,
+			outPtr,
+			outLen,
+			outFree,
 		)
-		fmt.Fprintf(b, "\t_ = inPtr\n")
-		fmt.Fprintf(b, "\t_ = inLen\n")
+		fmt.Fprintf(b, "\t_ = %s\n", inPtr)
+		fmt.Fprintf(b, "\t_ = %s\n", inLen)
 	}
 
-	fmt.Fprintf(b, "\tif outPtr != nil {\n\t\t*outPtr = nil\n\t}\n")
-	fmt.Fprintf(b, "\tif outLen != nil {\n\t\t*outLen = 0\n\t}\n")
-	fmt.Fprintf(b, "\tif outFree != nil {\n\t\t*outFree = nil\n\t} else {\n\t\t// ok\n\t}\n")
+	fmt.Fprintf(b, "\tif %s != nil {\n\t\t*%s = nil\n\t}\n", outPtr, outPtr)
+	fmt.Fprintf(b, "\tif %s != nil {\n\t\t*%s = 0\n\t}\n", outLen, outLen)
+	fmt.Fprintf(b, "\tif %s != nil {\n\t\t*%s = C.ygrpc_get_free_func()\n\t}\n", outFree, outFree)
 
 	fmt.Fprintf(b, "\treturn 0\n")
 	fmt.Fprintf(b, "}\n\n")
@@ -377,29 +429,88 @@ func emitNativeUnaryExport(
 	fmt.Fprintf(b, "//export %s\n", funcName)
 	fmt.Fprintf(b, "func %s(%s) C.int {\n", funcName, params)
 
+	// Assemble request/response structs (scaffold): no proto marshal/unmarshal.
+	fmt.Fprintf(b, "\ttype ygrpcReq struct {\n")
+	for _, f := range reqDesc.GetField() {
+		goField := goIdentFromProtoName(f.GetName())
+		if isNativeStringOrBytes(f.GetType()) {
+			if f.GetType() == descriptorpb.FieldDescriptorProto_TYPE_STRING {
+				fmt.Fprintf(b, "\t\t%s string\n", goField)
+			} else {
+				fmt.Fprintf(b, "\t\t%s []byte\n", goField)
+			}
+		} else {
+			fmt.Fprintf(b, "\t\t%s C.int\n", goField)
+		}
+	}
+	fmt.Fprintf(b, "\t}\n")
+	fmt.Fprintf(b, "\treq := ygrpcReq{\n")
+	for _, f := range reqDesc.GetField() {
+		goField := goIdentFromProtoName(f.GetName())
+		inBase := "in" + goField
+		if isNativeStringOrBytes(f.GetType()) {
+			if f.GetType() == descriptorpb.FieldDescriptorProto_TYPE_STRING {
+				fmt.Fprintf(b, "\t\t%s: ygrpcReadString(%sPtr, %sLen),\n", goField, inBase, inBase)
+			} else {
+				fmt.Fprintf(b, "\t\t%s: ygrpcReadBytes(%sPtr, %sLen),\n", goField, inBase, inBase)
+			}
+		} else {
+			// Keep as C scalar in this scaffold.
+			fmt.Fprintf(b, "\t\t%s: %s,\n", goField, inBase)
+		}
+	}
+	fmt.Fprintf(b, "\t}\n")
+	fmt.Fprintf(b, "\t_ = req\n\n")
+
+	fmt.Fprintf(b, "\ttype ygrpcResp struct {\n")
+	for _, f := range respDesc.GetField() {
+		goField := goIdentFromProtoName(f.GetName())
+		if isNativeStringOrBytes(f.GetType()) {
+			if f.GetType() == descriptorpb.FieldDescriptorProto_TYPE_STRING {
+				fmt.Fprintf(b, "\t\t%s string\n", goField)
+			} else {
+				fmt.Fprintf(b, "\t\t%s []byte\n", goField)
+			}
+		} else {
+			fmt.Fprintf(b, "\t\t%s C.int\n", goField)
+		}
+	}
+	fmt.Fprintf(b, "\t}\n")
+	fmt.Fprintf(b, "\tresp := ygrpcResp{}\n")
+	fmt.Fprintf(b, "\t_ = resp\n\n")
+
 	if includeReqFree {
 		for _, f := range reqDesc.GetField() {
 			if isNativeStringOrBytes(f.GetType()) {
 				inBase := "in" + goIdentFromProtoName(f.GetName())
 				fmt.Fprintf(b, "\tif %sPtr != nil && %sFree != nil {\n", inBase, inBase)
 				fmt.Fprintf(b, "\t\tC.ygrpc_call_free(%sFree, %sPtr)\n", inBase, inBase)
-				fmt.Fprintf(b, "\t} else {\n\t\t// ok\n\t}\n")
+				fmt.Fprintf(b, "\t}\n")
 			} else {
-				// ok
+
 			}
 		}
 	} else {
-		// ok
+
 	}
 
 	for _, f := range respDesc.GetField() {
 		outBase := "out" + goIdentFromProtoName(f.GetName())
 		if isNativeStringOrBytes(f.GetType()) {
-			fmt.Fprintf(b, "\tif %sPtr != nil {\n\t\t*%sPtr = nil\n\t} else {\n\t\t// ok\n\t}\n", outBase, outBase)
-			fmt.Fprintf(b, "\tif %sLen != nil {\n\t\t*%sLen = 0\n\t} else {\n\t\t// ok\n\t}\n", outBase, outBase)
-			fmt.Fprintf(b, "\tif %sFree != nil {\n\t\t*%sFree = nil\n\t} else {\n\t\t// ok\n\t}\n", outBase, outBase)
+			if f.GetType() == descriptorpb.FieldDescriptorProto_TYPE_STRING {
+				fmt.Fprintf(
+					b,
+					"\tygrpcWriteOutBytes(%sPtr, %sLen, %sFree, []byte(resp.%s))\n",
+					outBase,
+					outBase,
+					outBase,
+					goIdentFromProtoName(f.GetName()),
+				)
+			} else {
+				fmt.Fprintf(b, "\tygrpcWriteOutBytes(%sPtr, %sLen, %sFree, resp.%s)\n", outBase, outBase, outBase, goIdentFromProtoName(f.GetName()))
+			}
 		} else {
-			fmt.Fprintf(b, "\tif %s != nil {\n\t\t*%s = 0\n\t} else {\n\t\t// ok\n\t}\n", outBase, outBase)
+			fmt.Fprintf(b, "\tif %s != nil {\n\t\t*%s = resp.%s\n\t}\n", outBase, outBase, goIdentFromProtoName(f.GetName()))
 		}
 	}
 
@@ -424,7 +535,7 @@ func buildNativeUnaryParams(
 			if includeReqFree {
 				params = append(params, inBase+"Free C.FreeFunc")
 			} else {
-				// ok
+
 			}
 		} else {
 			t, ok := nativeScalarCType(f.GetType())
@@ -523,8 +634,6 @@ func goIdentFromProtoName(name string) string {
 	for _, p := range parts {
 		if p == "" {
 			continue
-		} else {
-			// ok
 		}
 		if len(p) == 1 {
 			b.WriteString(strings.ToUpper(p))
@@ -590,20 +699,14 @@ func isFlatMessage(msg *descriptorpb.DescriptorProto) bool {
 func isFlatField(f *descriptorpb.FieldDescriptorProto) bool {
 	if f.GetProto3Optional() {
 		return false
-	} else {
-		// ok
 	}
 
 	if f.GetLabel() == descriptorpb.FieldDescriptorProto_LABEL_REPEATED {
 		return false
-	} else {
-		// ok
 	}
 
 	if f.OneofIndex != nil {
 		return false
-	} else {
-		// ok
 	}
 
 	switch f.GetType() {

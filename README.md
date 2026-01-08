@@ -77,7 +77,7 @@ go build -buildmode=c-shared -o libygrpc.so ./ygrpc_cgo
 - **错误模型**：返回值 `0` 表示成功；非 `0` 表示 `errorId`，并可在 3 秒内调用 `Ygrpc_GetErrorMsg(errorId, ...)` 获取错误消息
 - **Response 输出**：始终以 `(ptr, len, free)` 三元组输出（通过 output params）
 - **Request 输入默认不带 free**：默认导出函数签名仅包含 `(ptr, len)`
-- **参数命名约定**：Binary 的 request/response 参数名统一使用 `in*` / `out*` 前缀（例如 `inPtr/inLen[/inFree]`，`outPtr/outLen/outFree`）
+- **参数命名约定**：Binary 的 request/response 参数名统一使用 `in*` / `out*` 前缀，并包含对应消息类型名（例如 `inPingRequestPtr/inPingRequestLen[/inPingRequestFree]`，`outPingResponsePtr/outPingResponseLen/outPingResponseFree`）
 
 ### 5) Request Free option（0/1/2）
 

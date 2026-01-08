@@ -112,16 +112,18 @@ func TestGeneratedCodeBuildsCShared(t *testing.T) {
 	if !bytes.Contains(headerBytes, []byte("TestService_Ping")) {
 		t.Fatalf("expected exported symbol not found in header: %s", headerPath)
 	}
-	if !bytes.Contains(headerBytes, []byte("outFree")) {
-		t.Fatalf("expected response triple not found in header: %s", headerPath)
-	}
+	assertHeaderLineContains(t, headerBytes, "TestService_Ping(", "inPingRequestPtr")
+	assertHeaderLineContains(t, headerBytes, "TestService_Ping(", "inPingRequestLen")
+	assertHeaderLineContains(t, headerBytes, "TestService_Ping(", "outPingResponsePtr")
+	assertHeaderLineContains(t, headerBytes, "TestService_Ping(", "outPingResponseLen")
+	assertHeaderLineContains(t, headerBytes, "TestService_Ping(", "outPingResponseFree")
 	if bytes.Contains(headerBytes, []byte("MsgErrorPtr")) {
 		t.Fatalf("expected msg_error triple to be absent in header: %s", headerPath)
 	}
-	assertHeaderLineNotContains(t, headerBytes, "TestService_Ping(", "inFree")
+	assertHeaderLineNotContains(t, headerBytes, "TestService_Ping(", "inPingRequestFree")
 	assertHeaderDoesNotContain(t, headerBytes, "TestService_PingOpt1(")
-	assertHeaderLineContains(t, headerBytes, "TestService_PingOpt1_TakeReq(", "inFree")
-	assertHeaderLineNotContains(t, headerBytes, "TestService_PingOpt2(", "inFree")
+	assertHeaderLineContains(t, headerBytes, "TestService_PingOpt1_TakeReq(", "inPingRequestOpt1Free")
+	assertHeaderLineNotContains(t, headerBytes, "TestService_PingOpt2(", "inPingRequestOpt2Free")
 	assertHeaderDoesNotContain(t, headerBytes, "TestService_PingOpt2_TakeReq(")
 
 	// Native mode (flat request+response only)
@@ -315,7 +317,5 @@ func assertBool(t *testing.T, want bool, got bool, name string) {
 	t.Helper()
 	if got != want {
 		t.Fatalf("%s: want=%v got=%v", name, want, got)
-	} else {
-		// ok
 	}
 }

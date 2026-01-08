@@ -31,7 +31,13 @@
 
 ### ABI 命名约定（参数前缀）
 
-- Binary 接口：request 侧参数使用 `in*` 前缀（如 `inPtr/inLen[/inFree]`），response 侧参数使用 `out*` 前缀（如 `outPtr/outLen/outFree`）。
+- Binary 接口：request 侧参数使用 `in*` 前缀，response 侧参数使用 `out*` 前缀；并且参数名必须包含对应的 **消息类型名** 以提升可读性。
+	- request bytes：`in<ReqMsg>Ptr / in<ReqMsg>Len [/ in<ReqMsg>Free]`
+	- response bytes：`out<RespMsg>Ptr / out<RespMsg>Len / out<RespMsg>Free`
+
+示例：`rpc Ping(PingRequest) returns (PingResponse)`
+	- 默认 Binary：`inPingRequestPtr, inPingRequestLen, outPingResponsePtr, outPingResponseLen, outPingResponseFree`
+	- `*_TakeReq` Binary：额外包含 `inPingRequestFree`
 
 ## Definitions
 
