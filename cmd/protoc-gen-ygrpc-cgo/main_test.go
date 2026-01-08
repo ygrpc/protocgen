@@ -92,7 +92,7 @@ func TestGeneratedCodeBuildsCShared(t *testing.T) {
 	}
 
 	soPath := filepath.Join(buildDir, "libygrpc_test.so")
-	buildShared := exec.Command("go", "build", "-tags", "ygrpc_cgo", "-buildmode=c-shared", "-o", soPath, "./ygrpc_cgo")
+	buildShared := exec.Command("go", "build", "-buildmode=c-shared", "-o", soPath, "./ygrpc_cgo")
 	buildShared.Dir = genDir
 	buildShared.Env = os.Environ()
 	if out, err := buildShared.CombinedOutput(); err != nil {
