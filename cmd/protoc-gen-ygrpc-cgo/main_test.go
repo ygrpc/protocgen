@@ -112,17 +112,32 @@ func TestGeneratedCodeBuildsCShared(t *testing.T) {
 	if !bytes.Contains(headerBytes, []byte("TestService_Ping")) {
 		t.Fatalf("expected exported symbol not found in header: %s", headerPath)
 	}
-	if !bytes.Contains(headerBytes, []byte("PingResponsePtr")) {
+	if !bytes.Contains(headerBytes, []byte("outFree")) {
 		t.Fatalf("expected response triple not found in header: %s", headerPath)
 	}
 	if bytes.Contains(headerBytes, []byte("MsgErrorPtr")) {
 		t.Fatalf("expected msg_error triple to be absent in header: %s", headerPath)
 	}
-	assertHeaderLineNotContains(t, headerBytes, "TestService_Ping(", "PingRequestFree")
+	assertHeaderLineNotContains(t, headerBytes, "TestService_Ping(", "inFree")
 	assertHeaderDoesNotContain(t, headerBytes, "TestService_PingOpt1(")
-	assertHeaderLineContains(t, headerBytes, "TestService_PingOpt1_TakeReq(", "PingRequestOpt1Free")
-	assertHeaderLineNotContains(t, headerBytes, "TestService_PingOpt2(", "PingRequestOpt2Free")
-	assertHeaderLineContains(t, headerBytes, "TestService_PingOpt2_TakeReq(", "PingRequestOpt2Free")
+	assertHeaderLineContains(t, headerBytes, "TestService_PingOpt1_TakeReq(", "inFree")
+	assertHeaderLineNotContains(t, headerBytes, "TestService_PingOpt2(", "inFree")
+	assertHeaderDoesNotContain(t, headerBytes, "TestService_PingOpt2_TakeReq(")
+
+	// Native mode (flat request+response only)
+	assertHeaderDoesNotContain(t, headerBytes, "TestService_Ping_Native(")
+	assertHeaderDoesNotContain(t, headerBytes, "TestService_Ping_Native_TakeReq(")
+
+	assertHeaderDoesNotContain(t, headerBytes, "TestService_PingOpt1_Native(")
+	assertHeaderDoesNotContain(t, headerBytes, "TestService_PingOpt1_Native_TakeReq(")
+
+	assertHeaderLineNotContains(t, headerBytes, "TestService_PingOpt2_Native(", "inMsgFree")
+	assertHeaderLineContains(t, headerBytes, "TestService_PingOpt2_Native(", "inMsgPtr")
+	assertHeaderLineContains(t, headerBytes, "TestService_PingOpt2_Native(", "inMsgLen")
+	assertHeaderLineContains(t, headerBytes, "TestService_PingOpt2_Native(", "inId")
+	assertHeaderDoesNotContain(t, headerBytes, "TestService_PingOpt2_Native_TakeReq(")
+
+	assertHeaderDoesNotContain(t, headerBytes, "TestService_NonFlat_Native(")
 	if !bytes.Contains(headerBytes, []byte("Ygrpc_GetErrorMsg")) {
 		t.Fatalf("expected Ygrpc_GetErrorMsg to be present in header: %s", headerPath)
 	}

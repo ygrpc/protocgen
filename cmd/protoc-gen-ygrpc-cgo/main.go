@@ -198,7 +198,7 @@ func buildBinaryUnaryProtoGoFile(
 				respMsg = respType[dot+1:]
 			}
 
-			reqFreeMode := lookupRequestFreeMode(reqType, msgIndex)
+			reqFreeMode := lookupRequestFreeModeForMethod(fd, m)
 			switch reqFreeMode {
 			case 2:
 				emitBinaryUnaryExport(b, baseFuncName, m.GetName(), reqMsg, reqType, respMsg, respType, false)
@@ -207,6 +207,70 @@ func buildBinaryUnaryProtoGoFile(
 				emitBinaryUnaryExport(b, baseFuncName+"_TakeReq", m.GetName(), reqMsg, reqType, respMsg, respType, true)
 			default:
 				emitBinaryUnaryExport(b, baseFuncName, m.GetName(), reqMsg, reqType, respMsg, respType, false)
+			}
+
+			reqDesc := msgIndex[reqType]
+			respDesc := msgIndex[respType]
+			nativeGenMode := lookupNativeGenerationModeForMethod(fd, m)
+			if nativeGenMode == 1 {
+				// native disabled by method option
+			} else if reqDesc != nil && respDesc != nil && isFlatMessage(reqDesc) && isFlatMessage(respDesc) {
+				nativeBaseName := baseFuncName + "_Native"
+				switch reqFreeMode {
+				case 2:
+					emitNativeUnaryExport(
+						b,
+						nativeBaseName,
+						m.GetName(),
+						reqMsg,
+						reqType,
+						respMsg,
+						respType,
+						reqDesc,
+						respDesc,
+						false,
+					)
+					emitNativeUnaryExport(
+						b,
+						nativeBaseName+"_TakeReq",
+						m.GetName(),
+						reqMsg,
+						reqType,
+						respMsg,
+						respType,
+						reqDesc,
+						respDesc,
+						true,
+					)
+				case 1:
+					emitNativeUnaryExport(
+						b,
+						nativeBaseName+"_TakeReq",
+						m.GetName(),
+						reqMsg,
+						reqType,
+						respMsg,
+						respType,
+						reqDesc,
+						respDesc,
+						true,
+					)
+				default:
+					emitNativeUnaryExport(
+						b,
+						nativeBaseName,
+						m.GetName(),
+						reqMsg,
+						reqType,
+						respMsg,
+						respType,
+						reqDesc,
+						respDesc,
+						false,
+					)
+				}
+			} else {
+				// not eligible for native mode
 			}
 		}
 	}
@@ -254,44 +318,258 @@ func emitBinaryUnaryExport(
 	if includeReqFree {
 		fmt.Fprintf(
 			b,
-			"func %s(%sPtr unsafe.Pointer, %sLen C.int, %sFree C.FreeFunc, %sPtr *unsafe.Pointer, %sLen *C.int, %sFree *C.FreeFunc) C.int {\n",
+			"func %s(inPtr unsafe.Pointer, inLen C.int, inFree C.FreeFunc, outPtr *unsafe.Pointer, outLen *C.int, outFree *C.FreeFunc) C.int {\n",
 			funcName,
-			reqMsg,
-			reqMsg,
-			reqMsg,
-			respMsg,
-			respMsg,
-			respMsg,
 		)
-		fmt.Fprintf(b, "\t_ = %sLen\n", reqMsg)
-		fmt.Fprintf(b, "\tif %sPtr != nil && %sFree != nil {\n", reqMsg, reqMsg)
-		fmt.Fprintf(b, "\t\tC.ygrpc_call_free(%sFree, %sPtr)\n", reqMsg, reqMsg)
+		fmt.Fprintf(b, "\t_ = inLen\n")
+		fmt.Fprintf(b, "\tif inPtr != nil && inFree != nil {\n")
+		fmt.Fprintf(b, "\t\tC.ygrpc_call_free(inFree, inPtr)\n")
 		fmt.Fprintf(b, "\t}\n")
 	} else {
 		fmt.Fprintf(
 			b,
-			"func %s(%sPtr unsafe.Pointer, %sLen C.int, %sPtr *unsafe.Pointer, %sLen *C.int, %sFree *C.FreeFunc) C.int {\n",
+			"func %s(inPtr unsafe.Pointer, inLen C.int, outPtr *unsafe.Pointer, outLen *C.int, outFree *C.FreeFunc) C.int {\n",
 			funcName,
-			reqMsg,
-			reqMsg,
-			respMsg,
-			respMsg,
-			respMsg,
 		)
-		fmt.Fprintf(b, "\t_ = %sPtr\n", reqMsg)
-		fmt.Fprintf(b, "\t_ = %sLen\n", reqMsg)
+		fmt.Fprintf(b, "\t_ = inPtr\n")
+		fmt.Fprintf(b, "\t_ = inLen\n")
 	}
 
-	fmt.Fprintf(b, "\tif %sPtr != nil {\n\t\t*%sPtr = nil\n\t}\n", respMsg, respMsg)
-	fmt.Fprintf(b, "\tif %sLen != nil {\n\t\t*%sLen = 0\n\t}\n", respMsg, respMsg)
+	fmt.Fprintf(b, "\tif outPtr != nil {\n\t\t*outPtr = nil\n\t}\n")
+	fmt.Fprintf(b, "\tif outLen != nil {\n\t\t*outLen = 0\n\t}\n")
+	fmt.Fprintf(b, "\tif outFree != nil {\n\t\t*outFree = nil\n\t} else {\n\t\t// ok\n\t}\n")
+
+	fmt.Fprintf(b, "\treturn 0\n")
+	fmt.Fprintf(b, "}\n\n")
+}
+
+func emitNativeUnaryExport(
+	b *strings.Builder,
+	funcName string,
+	rpcName string,
+	reqMsg string,
+	reqType string,
+	respMsg string,
+	respType string,
+	reqDesc *descriptorpb.DescriptorProto,
+	respDesc *descriptorpb.DescriptorProto,
+	includeReqFree bool,
+) {
+	fmt.Fprintf(b, "// %s is the Native Mode (flat message fields) entrypoint for:\n", funcName)
+	fmt.Fprintf(b, "//   rpc %s(%s) returns (%s);\n", rpcName, reqType, respType)
+	fmt.Fprintf(b, "//\n")
+	fmt.Fprintf(b, "// ABI (no C structs):\n")
+	fmt.Fprintf(b, "//   - Flat request/response fields are expanded into parameters.\n")
 	if includeReqFree {
-		fmt.Fprintf(b, "\tif %sFree != nil {\n\t\t*%sFree = nil\n\t}\n", respMsg, respMsg)
+		fmt.Fprintf(b, "//   - Request string/bytes fields are passed as (ptr, len, free).\n")
 	} else {
-		fmt.Fprintf(b, "\tif %sFree != nil {\n\t\t*%sFree = nil\n\t}\n", respMsg, respMsg)
+		fmt.Fprintf(b, "//   - Request string/bytes fields are passed as (ptr, len) (default).\n")
+	}
+	fmt.Fprintf(b, "//   - Response string/bytes fields are returned as (ptr, len, free) triples (output params).\n")
+	fmt.Fprintf(b, "//\n")
+	fmt.Fprintf(b, "// Return:\n")
+	fmt.Fprintf(b, "//   - 0 on success; non-zero is an errorId.\n")
+	fmt.Fprintf(b, "//\n")
+	fmt.Fprintf(b, "// Error reporting:\n")
+	fmt.Fprintf(b, "//   - Use Ygrpc_GetErrorMsg(errorId, ...) within 3s to fetch the message.\n")
+
+	params := buildNativeUnaryParams(reqMsg, reqDesc, respMsg, respDesc, includeReqFree)
+	fmt.Fprintf(b, "//export %s\n", funcName)
+	fmt.Fprintf(b, "func %s(%s) C.int {\n", funcName, params)
+
+	if includeReqFree {
+		for _, f := range reqDesc.GetField() {
+			if isNativeStringOrBytes(f.GetType()) {
+				inBase := "in" + goIdentFromProtoName(f.GetName())
+				fmt.Fprintf(b, "\tif %sPtr != nil && %sFree != nil {\n", inBase, inBase)
+				fmt.Fprintf(b, "\t\tC.ygrpc_call_free(%sFree, %sPtr)\n", inBase, inBase)
+				fmt.Fprintf(b, "\t} else {\n\t\t// ok\n\t}\n")
+			} else {
+				// ok
+			}
+		}
+	} else {
+		// ok
+	}
+
+	for _, f := range respDesc.GetField() {
+		outBase := "out" + goIdentFromProtoName(f.GetName())
+		if isNativeStringOrBytes(f.GetType()) {
+			fmt.Fprintf(b, "\tif %sPtr != nil {\n\t\t*%sPtr = nil\n\t} else {\n\t\t// ok\n\t}\n", outBase, outBase)
+			fmt.Fprintf(b, "\tif %sLen != nil {\n\t\t*%sLen = 0\n\t} else {\n\t\t// ok\n\t}\n", outBase, outBase)
+			fmt.Fprintf(b, "\tif %sFree != nil {\n\t\t*%sFree = nil\n\t} else {\n\t\t// ok\n\t}\n", outBase, outBase)
+		} else {
+			fmt.Fprintf(b, "\tif %s != nil {\n\t\t*%s = 0\n\t} else {\n\t\t// ok\n\t}\n", outBase, outBase)
+		}
 	}
 
 	fmt.Fprintf(b, "\treturn 0\n")
 	fmt.Fprintf(b, "}\n\n")
+}
+
+func buildNativeUnaryParams(
+	reqMsg string,
+	reqDesc *descriptorpb.DescriptorProto,
+	respMsg string,
+	respDesc *descriptorpb.DescriptorProto,
+	includeReqFree bool,
+) string {
+	params := make([]string, 0)
+
+	for _, f := range reqDesc.GetField() {
+		inBase := "in" + goIdentFromProtoName(f.GetName())
+		if isNativeStringOrBytes(f.GetType()) {
+			params = append(params, inBase+"Ptr unsafe.Pointer")
+			params = append(params, inBase+"Len C.int")
+			if includeReqFree {
+				params = append(params, inBase+"Free C.FreeFunc")
+			} else {
+				// ok
+			}
+		} else {
+			t, ok := nativeScalarCType(f.GetType())
+			if ok {
+				params = append(params, inBase+" "+t)
+			} else {
+				params = append(params, inBase+" C.int")
+			}
+		}
+	}
+
+	for _, f := range respDesc.GetField() {
+		outBase := "out" + goIdentFromProtoName(f.GetName())
+		if isNativeStringOrBytes(f.GetType()) {
+			params = append(params, outBase+"Ptr *unsafe.Pointer")
+			params = append(params, outBase+"Len *C.int")
+			params = append(params, outBase+"Free *C.FreeFunc")
+		} else {
+			t, ok := nativeScalarCType(f.GetType())
+			if ok {
+				params = append(params, outBase+" *"+t)
+			} else {
+				params = append(params, outBase+" *C.int")
+			}
+		}
+	}
+
+	return strings.Join(params, ", ")
+}
+
+const ygrpcCgoNativeGenOptionFieldNumber protowire.Number = 50002
+
+// lookupNativeGenerationModeForMethod reads the FileOptions/MethodOptions extension (unknown field) for:
+//
+//	extend google.protobuf.FileOptions   { int32 ygrpc_cgo_native = 50002; }
+//	extend google.protobuf.MethodOptions { int32 ygrpc_cgo_native = 50002; }
+//
+// Precedence:
+//   - MethodOptions overrides FileOptions.
+//
+// Semantics:
+//   - 0 (default): generate native functions when eligible
+//   - 1: do not generate native functions
+func lookupNativeGenerationModeForMethod(
+	fd *descriptorpb.FileDescriptorProto,
+	m *descriptorpb.MethodDescriptorProto,
+) int32 {
+	if m != nil {
+		mode, ok := readNativeGenModeFromMethodOptions(m.GetOptions())
+		if ok && (mode == 0 || mode == 1) {
+			return mode
+		}
+	}
+	if fd != nil {
+		mode, ok := readNativeGenModeFromFileOptions(fd.GetOptions())
+		if ok && (mode == 0 || mode == 1) {
+			return mode
+		}
+	}
+	return 0
+}
+
+func readNativeGenModeFromMethodOptions(opts *descriptorpb.MethodOptions) (int32, bool) {
+	if opts == nil {
+		return 0, false
+	}
+	unknown := opts.ProtoReflect().GetUnknown()
+	if len(unknown) == 0 {
+		return 0, false
+	}
+	val, ok := consumeUnknownVarintField(unknown, ygrpcCgoNativeGenOptionFieldNumber)
+	if !ok {
+		return 0, false
+	}
+	return int32(val), true
+}
+
+func readNativeGenModeFromFileOptions(opts *descriptorpb.FileOptions) (int32, bool) {
+	if opts == nil {
+		return 0, false
+	}
+	unknown := opts.ProtoReflect().GetUnknown()
+	if len(unknown) == 0 {
+		return 0, false
+	}
+	val, ok := consumeUnknownVarintField(unknown, ygrpcCgoNativeGenOptionFieldNumber)
+	if !ok {
+		return 0, false
+	}
+	return int32(val), true
+}
+
+func goIdentFromProtoName(name string) string {
+	parts := strings.Split(name, "_")
+	b := &strings.Builder{}
+	for _, p := range parts {
+		if p == "" {
+			continue
+		} else {
+			// ok
+		}
+		if len(p) == 1 {
+			b.WriteString(strings.ToUpper(p))
+		} else {
+			b.WriteString(strings.ToUpper(p[:1]))
+			b.WriteString(p[1:])
+		}
+	}
+	return b.String()
+}
+
+func isNativeStringOrBytes(t descriptorpb.FieldDescriptorProto_Type) bool {
+	switch t {
+	case descriptorpb.FieldDescriptorProto_TYPE_STRING, descriptorpb.FieldDescriptorProto_TYPE_BYTES:
+		return true
+	default:
+		return false
+	}
+}
+
+func nativeScalarCType(t descriptorpb.FieldDescriptorProto_Type) (string, bool) {
+	switch t {
+	case descriptorpb.FieldDescriptorProto_TYPE_BOOL:
+		return "C.int", true
+	case descriptorpb.FieldDescriptorProto_TYPE_FLOAT:
+		return "C.float", true
+	case descriptorpb.FieldDescriptorProto_TYPE_DOUBLE:
+		return "C.double", true
+	case descriptorpb.FieldDescriptorProto_TYPE_INT32,
+		descriptorpb.FieldDescriptorProto_TYPE_SINT32,
+		descriptorpb.FieldDescriptorProto_TYPE_FIXED32,
+		descriptorpb.FieldDescriptorProto_TYPE_SFIXED32:
+		return "C.int", true
+	case descriptorpb.FieldDescriptorProto_TYPE_UINT32:
+		return "C.uint", true
+	case descriptorpb.FieldDescriptorProto_TYPE_INT64,
+		descriptorpb.FieldDescriptorProto_TYPE_SINT64,
+		descriptorpb.FieldDescriptorProto_TYPE_FIXED64,
+		descriptorpb.FieldDescriptorProto_TYPE_SFIXED64:
+		return "C.longlong", true
+	case descriptorpb.FieldDescriptorProto_TYPE_UINT64:
+		return "C.ulonglong", true
+	default:
+		return "", false
+	}
 }
 
 // isFlatMessage returns true when msg contains only scalar (non-enum) fields and
@@ -356,6 +634,28 @@ func isFlatField(f *descriptorpb.FieldDescriptorProto) bool {
 
 const ygrpcCgoReqFreeOptionFieldNumber protowire.Number = 50001
 
+func lookupRequestFreeModeForMethod(fd *descriptorpb.FileDescriptorProto, m *descriptorpb.MethodDescriptorProto) int32 {
+	if m != nil {
+		mode, ok := readReqFreeModeFromMethodOptions(m.GetOptions())
+		if ok {
+			if mode == 0 || mode == 1 || mode == 2 {
+				return mode
+			}
+			return 0
+		}
+	}
+	if fd != nil {
+		mode, ok := readReqFreeModeFromFileOptions(fd.GetOptions())
+		if ok {
+			if mode == 0 || mode == 1 || mode == 2 {
+				return mode
+			}
+			return 0
+		}
+	}
+	return 0
+}
+
 func buildMessageIndex(files []*descriptorpb.FileDescriptorProto) map[string]*descriptorpb.DescriptorProto {
 	idx := map[string]*descriptorpb.DescriptorProto{}
 	for _, fd := range files {
@@ -378,22 +678,22 @@ func indexMessage(idx map[string]*descriptorpb.DescriptorProto, prefix string, m
 	}
 }
 
-func lookupRequestFreeMode(fullMessageType string, msgIndex map[string]*descriptorpb.DescriptorProto) int32 {
-	msg := msgIndex[fullMessageType]
-	if msg == nil {
-		return 0
+func readReqFreeModeFromMethodOptions(opts *descriptorpb.MethodOptions) (int32, bool) {
+	if opts == nil {
+		return 0, false
 	}
-	mode, ok := readReqFreeModeFromMessageOptions(msg.GetOptions())
+	unknown := opts.ProtoReflect().GetUnknown()
+	if len(unknown) == 0 {
+		return 0, false
+	}
+	val, ok := consumeUnknownVarintField(unknown, ygrpcCgoReqFreeOptionFieldNumber)
 	if !ok {
-		return 0
+		return 0, false
 	}
-	if mode == 0 || mode == 1 || mode == 2 {
-		return mode
-	}
-	return 0
+	return int32(val), true
 }
 
-func readReqFreeModeFromMessageOptions(opts *descriptorpb.MessageOptions) (int32, bool) {
+func readReqFreeModeFromFileOptions(opts *descriptorpb.FileOptions) (int32, bool) {
 	if opts == nil {
 		return 0, false
 	}

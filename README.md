@@ -77,32 +77,82 @@ go build -buildmode=c-shared -o libygrpc.so ./ygrpc_cgo
 - **错误模型**：返回值 `0` 表示成功；非 `0` 表示 `errorId`，并可在 3 秒内调用 `Ygrpc_GetErrorMsg(errorId, ...)` 获取错误消息
 - **Response 输出**：始终以 `(ptr, len, free)` 三元组输出（通过 output params）
 - **Request 输入默认不带 free**：默认导出函数签名仅包含 `(ptr, len)`
+- **参数命名约定**：Binary 的 request/response 参数名统一使用 `in*` / `out*` 前缀（例如 `inPtr/inLen[/inFree]`，`outPtr/outLen/outFree`）
 
 ### 5) Request Free option（0/1/2）
 
-支持在 request message 上定义一个自定义 option，用于控制 request `free` 的导出策略：
+支持通过 proto option 配置 request `free` 的导出策略：
 
 - option=0（默认）：仅生成默认符号 `Service_Method`（不包含 request `free`）
 - option=1：仅生成 `Service_Method_TakeReq`（包含 request `free`）
 - option=2：同时生成 `Service_Method` + `Service_Method_TakeReq`
 
-注意：当前实现通过读取 `google.protobuf.MessageOptions` 的 unknown fields 来解析该 option，要求该 option 的字段号为 `50001`。
+注意：当前实现通过读取 Options 的 unknown fields 来解析该 option，要求字段号为 `50001`。
+
+该策略支持两种配置入口与优先级（Method 优先于 File）：
+
+- MethodOptions（方法级，优先级最高）
+- FileOptions（文件级默认值）
+
+由于 protobuf 的扩展名在同一 package 下必须全局唯一，File/Method 的扩展名建议使用不同名字（例如 `*_default` / `*_method`），但字段号保持为 `50001`。
 
 proto 示例：
 
 ```proto
 import "google/protobuf/descriptor.proto";
 
-extend google.protobuf.MessageOptions {
-  int32 ygrpc_cgo_req_free = 50001;
-}
+extend google.protobuf.FileOptions { int32 ygrpc_cgo_req_free_default = 50001; }
+extend google.protobuf.MethodOptions { int32 ygrpc_cgo_req_free_method = 50001; }
+
+// file-level default (applies to all methods unless overridden)
+option (ygrpc_cgo_req_free_default) = 2;
 
 message MyReq {
-  option (ygrpc_cgo_req_free) = 2; // 0/1/2
   bytes data = 1;
+}
+
+service Svc {
+  rpc Ping(MyReq) returns (MyResp) {
+    option (ygrpc_cgo_req_free_method) = 1;
+  }
 }
 ```
 
-### 6) 重要说明（当前限制）
+### 6) Native Mode（Unary）与禁用开关
+
+当某个 unary RPC 的 request/response 都满足 “flat message” 条件时，当前实现会额外生成 `Service_Method_Native`（以及可能的 `Service_Method_Native_TakeReq`）导出函数：
+
+- **入参展开**：request 的字段会展开为参数（例如 `string/bytes` 变为 `inXxxPtr/inXxxLen`；数值类标量变为 `inXxx`）
+- **出参展开**：response 的 `string/bytes` 仍以 `(ptr, len, free)` 三元组输出（output params）
+- **Request free 行为**：默认不带 `free`；当 `ygrpc_cgo_req_free_*` 配置触发 `*_TakeReq` 版本时，native 侧对应 `string/bytes` 入参会额外带 `inXxxFree`
+
+此外支持通过方法级 option 显式关闭某个方法的 native 生成：
+
+- option=0（默认）：生成 native（若满足 flat 条件）
+- option=1：不生成 native
+
+注意：当前实现通过读取 Options 的 unknown fields 来解析该 option，要求字段号为 `50002`。由于 protobuf 扩展名全局唯一，FileOptions 建议使用 `ygrpc_cgo_native_default`，MethodOptions 使用 `ygrpc_cgo_native`。
+
+proto 示例：
+
+```proto
+import "google/protobuf/descriptor.proto";
+
+extend google.protobuf.FileOptions {
+  int32 ygrpc_cgo_native_default = 50002; // 0/1
+}
+
+extend google.protobuf.MethodOptions {
+  int32 ygrpc_cgo_native = 50002; // 0/1
+}
+
+service Svc {
+  rpc Ping(MyReq) returns (MyResp) {
+    option (ygrpc_cgo_native) = 1; // 禁用 native
+  }
+}
+```
+
+### 7) 重要说明（当前限制）
 
 当前生成的导出函数仍是“可编译的最小骨架（scaffold）”：函数体不包含真实的 marshal/unmarshal 与业务 handler 调用逻辑，主要用于固定 ABI 形态、验证 cgo/buildmode=c-shared 可用与头文件原型符合约定。
