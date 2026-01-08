@@ -12,6 +12,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/descriptorpb"
 )
 
 func TestGeneratedCodeBuildsCShared(t *testing.T) {
@@ -118,8 +121,8 @@ func TestGeneratedCodeBuildsCShared(t *testing.T) {
 	assertHeaderLineNotContains(t, headerBytes, "TestService_Ping(", "PingRequestFree")
 	assertHeaderDoesNotContain(t, headerBytes, "TestService_PingOpt1(")
 	assertHeaderLineContains(t, headerBytes, "TestService_PingOpt1_TakeReq(", "PingRequestOpt1Free")
-	assertHeaderLineNotContains(t, headerBytes, "TestService_PingOpt3(", "PingRequestOpt3Free")
-	assertHeaderLineContains(t, headerBytes, "TestService_PingOpt3_TakeReq(", "PingRequestOpt3Free")
+	assertHeaderLineNotContains(t, headerBytes, "TestService_PingOpt2(", "PingRequestOpt2Free")
+	assertHeaderLineContains(t, headerBytes, "TestService_PingOpt2_TakeReq(", "PingRequestOpt2Free")
 	if !bytes.Contains(headerBytes, []byte("Ygrpc_GetErrorMsg")) {
 		t.Fatalf("expected Ygrpc_GetErrorMsg to be present in header: %s", headerPath)
 	}
@@ -134,7 +137,12 @@ func assertHeaderLineContains(t *testing.T, header []byte, mustContainInLine str
 		t.Fatalf("expected header line containing %q", mustContainInLine)
 	}
 	if !strings.Contains(line, expectedSubstring) {
-		t.Fatalf("expected header line containing %q to also contain %q, got: %s", mustContainInLine, expectedSubstring, line)
+		t.Fatalf(
+			"expected header line containing %q to also contain %q, got: %s",
+			mustContainInLine,
+			expectedSubstring,
+			line,
+		)
 	}
 }
 
@@ -145,7 +153,12 @@ func assertHeaderLineNotContains(t *testing.T, header []byte, mustContainInLine 
 		t.Fatalf("expected header line containing %q", mustContainInLine)
 	}
 	if strings.Contains(line, unexpectedSubstring) {
-		t.Fatalf("expected header line containing %q to NOT contain %q, got: %s", mustContainInLine, unexpectedSubstring, line)
+		t.Fatalf(
+			"expected header line containing %q to NOT contain %q, got: %s",
+			mustContainInLine,
+			unexpectedSubstring,
+			line,
+		)
 	}
 }
 
@@ -196,5 +209,98 @@ func pruneArtifactDirs(t *testing.T, artifactsRoot string, keep int) {
 		if err := os.RemoveAll(dir); err != nil {
 			t.Fatalf("remove old artifact dir %s: %v", dir, err)
 		}
+	}
+}
+
+func TestIsFlatMessage(t *testing.T) {
+	flat := &descriptorpb.DescriptorProto{
+		Field: []*descriptorpb.FieldDescriptorProto{
+			{
+				Name:   proto.String("a"),
+				Number: proto.Int32(1),
+				Label:  descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+				Type:   descriptorpb.FieldDescriptorProto_TYPE_INT32.Enum(),
+			},
+			{
+				Name:   proto.String("b"),
+				Number: proto.Int32(2),
+				Label:  descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+				Type:   descriptorpb.FieldDescriptorProto_TYPE_BOOL.Enum(),
+			},
+			{
+				Name:   proto.String("c"),
+				Number: proto.Int32(3),
+				Label:  descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+				Type:   descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+			},
+			{
+				Name:   proto.String("d"),
+				Number: proto.Int32(4),
+				Label:  descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+				Type:   descriptorpb.FieldDescriptorProto_TYPE_BYTES.Enum(),
+			},
+		},
+	}
+	assertBool(t, true, isFlatMessage(flat), "flat scalars")
+
+	nonFlatEnum := &descriptorpb.DescriptorProto{
+		Field: []*descriptorpb.FieldDescriptorProto{{
+			Name:   proto.String("e"),
+			Number: proto.Int32(1),
+			Label:  descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+			Type:   descriptorpb.FieldDescriptorProto_TYPE_ENUM.Enum(),
+		}},
+	}
+	assertBool(t, false, isFlatMessage(nonFlatEnum), "enum field")
+
+	nonFlatMsg := &descriptorpb.DescriptorProto{
+		Field: []*descriptorpb.FieldDescriptorProto{{
+			Name:   proto.String("m"),
+			Number: proto.Int32(1),
+			Label:  descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+			Type:   descriptorpb.FieldDescriptorProto_TYPE_MESSAGE.Enum(),
+		}},
+	}
+	assertBool(t, false, isFlatMessage(nonFlatMsg), "message field")
+
+	nonFlatRepeated := &descriptorpb.DescriptorProto{
+		Field: []*descriptorpb.FieldDescriptorProto{{
+			Name:   proto.String("r"),
+			Number: proto.Int32(1),
+			Label:  descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum(),
+			Type:   descriptorpb.FieldDescriptorProto_TYPE_INT32.Enum(),
+		}},
+	}
+	assertBool(t, false, isFlatMessage(nonFlatRepeated), "repeated field")
+
+	nonFlatProto3Optional := &descriptorpb.DescriptorProto{
+		Field: []*descriptorpb.FieldDescriptorProto{{
+			Name:           proto.String("o"),
+			Number:         proto.Int32(1),
+			Label:          descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+			Type:           descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+			Proto3Optional: proto.Bool(true),
+		}},
+	}
+	assertBool(t, false, isFlatMessage(nonFlatProto3Optional), "proto3 optional field")
+
+	nonFlatOneof := &descriptorpb.DescriptorProto{
+		Field: []*descriptorpb.FieldDescriptorProto{{
+			Name:       proto.String("x"),
+			Number:     proto.Int32(1),
+			Label:      descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+			Type:       descriptorpb.FieldDescriptorProto_TYPE_INT32.Enum(),
+			OneofIndex: proto.Int32(0),
+		}},
+	}
+	assertBool(t, false, isFlatMessage(nonFlatOneof), "oneof field")
+}
+
+func assertBool(t *testing.T, want bool, got bool, name string) {
+	t.Helper()
+	if got != want {
+		t.Fatalf("%s: want=%v got=%v", name, want, got)
+	} else {
+		// ok
 	}
 }

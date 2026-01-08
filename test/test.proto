@@ -13,7 +13,7 @@ extend google.protobuf.MessageOptions {
 service TestService {
   rpc Ping(PingRequest) returns (PingResponse);
   rpc PingOpt1(PingRequestOpt1) returns (PingResponse);
-  rpc PingOpt3(PingRequestOpt3) returns (PingResponse);
+  rpc PingOpt2(PingRequestOpt2) returns (PingResponse);
 }
 
 message PingRequest {
