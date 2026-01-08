@@ -32,7 +32,7 @@
     - 交付物：对 flat rpc 生成 `*_Native` 导出函数（可通过 method/file option 禁用 native：option=0 默认生成；option=1 不生成，method 优先）；response 侧 string/bytes 仍展开为 `(ptr, len, free)`；request 侧默认展开为 `(ptr, len)`，并受 file/method option 控制 request free 策略（method 优先）：option=0 默认；option=1 仅生成 `*_Native_TakeReq`；option=2 同时生成 `*_Native` + `*_Native_TakeReq`。
     - 验收点：生成的 C 原型字段顺序与形态满足 change specs（`cgo-interop`）。
 
-- [ ] 3.3 Native 的 Go 侧装配逻辑
+- [x] 3.3 Native 的 Go 侧装配逻辑
     - 交付物：Go 侧直接构造 request struct、读取 response struct（替代 marshal/unmarshal）。
     - 验收点：至少对一条 unary rpc 的 generated code 走通编译与基础单测（如有）。
 

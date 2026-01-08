@@ -440,7 +440,12 @@ func emitNativeUnaryExport(
 				fmt.Fprintf(b, "\t\t%s []byte\n", goField)
 			}
 		} else {
-			fmt.Fprintf(b, "\t\t%s C.int\n", goField)
+			goType, ok := nativeScalarGoType(f.GetType())
+			if ok {
+				fmt.Fprintf(b, "\t\t%s %s\n", goField, goType)
+			} else {
+				fmt.Fprintf(b, "\t\t%s int32\n", goField)
+			}
 		}
 	}
 	fmt.Fprintf(b, "\t}\n")
@@ -455,8 +460,7 @@ func emitNativeUnaryExport(
 				fmt.Fprintf(b, "\t\t%s: ygrpcReadBytes(%sPtr, %sLen),\n", goField, inBase, inBase)
 			}
 		} else {
-			// Keep as C scalar in this scaffold.
-			fmt.Fprintf(b, "\t\t%s: %s,\n", goField, inBase)
+			fmt.Fprintf(b, "\t\t%s: %s,\n", goField, nativeScalarFromCExpr(f.GetType(), inBase))
 		}
 	}
 	fmt.Fprintf(b, "\t}\n")
@@ -472,7 +476,12 @@ func emitNativeUnaryExport(
 				fmt.Fprintf(b, "\t\t%s []byte\n", goField)
 			}
 		} else {
-			fmt.Fprintf(b, "\t\t%s C.int\n", goField)
+			goType, ok := nativeScalarGoType(f.GetType())
+			if ok {
+				fmt.Fprintf(b, "\t\t%s %s\n", goField, goType)
+			} else {
+				fmt.Fprintf(b, "\t\t%s int32\n", goField)
+			}
 		}
 	}
 	fmt.Fprintf(b, "\t}\n")
@@ -486,12 +495,8 @@ func emitNativeUnaryExport(
 				fmt.Fprintf(b, "\tif %sPtr != nil && %sFree != nil {\n", inBase, inBase)
 				fmt.Fprintf(b, "\t\tC.ygrpc_call_free(%sFree, %sPtr)\n", inBase, inBase)
 				fmt.Fprintf(b, "\t}\n")
-			} else {
-
 			}
 		}
-	} else {
-
 	}
 
 	for _, f := range respDesc.GetField() {
@@ -510,7 +515,13 @@ func emitNativeUnaryExport(
 				fmt.Fprintf(b, "\tygrpcWriteOutBytes(%sPtr, %sLen, %sFree, resp.%s)\n", outBase, outBase, outBase, goIdentFromProtoName(f.GetName()))
 			}
 		} else {
-			fmt.Fprintf(b, "\tif %s != nil {\n\t\t*%s = resp.%s\n\t}\n", outBase, outBase, goIdentFromProtoName(f.GetName()))
+			fmt.Fprintf(
+				b,
+				"\tif %s != nil {\n\t\t*%s = %s\n\t}\n",
+				outBase,
+				outBase,
+				nativeScalarToCExpr(f.GetType(), "resp."+goIdentFromProtoName(f.GetName())),
+			)
 		}
 	}
 
@@ -678,6 +689,87 @@ func nativeScalarCType(t descriptorpb.FieldDescriptorProto_Type) (string, bool) 
 		return "C.ulonglong", true
 	default:
 		return "", false
+	}
+}
+
+func nativeScalarGoType(t descriptorpb.FieldDescriptorProto_Type) (string, bool) {
+	switch t {
+	case descriptorpb.FieldDescriptorProto_TYPE_BOOL:
+		return "bool", true
+	case descriptorpb.FieldDescriptorProto_TYPE_FLOAT:
+		return "float32", true
+	case descriptorpb.FieldDescriptorProto_TYPE_DOUBLE:
+		return "float64", true
+	case descriptorpb.FieldDescriptorProto_TYPE_INT32,
+		descriptorpb.FieldDescriptorProto_TYPE_SINT32,
+		descriptorpb.FieldDescriptorProto_TYPE_FIXED32,
+		descriptorpb.FieldDescriptorProto_TYPE_SFIXED32:
+		return "int32", true
+	case descriptorpb.FieldDescriptorProto_TYPE_UINT32:
+		return "uint32", true
+	case descriptorpb.FieldDescriptorProto_TYPE_INT64,
+		descriptorpb.FieldDescriptorProto_TYPE_SINT64,
+		descriptorpb.FieldDescriptorProto_TYPE_FIXED64,
+		descriptorpb.FieldDescriptorProto_TYPE_SFIXED64:
+		return "int64", true
+	case descriptorpb.FieldDescriptorProto_TYPE_UINT64:
+		return "uint64", true
+	default:
+		return "", false
+	}
+}
+
+func nativeScalarFromCExpr(t descriptorpb.FieldDescriptorProto_Type, cExpr string) string {
+	switch t {
+	case descriptorpb.FieldDescriptorProto_TYPE_BOOL:
+		return cExpr + " != 0"
+	case descriptorpb.FieldDescriptorProto_TYPE_FLOAT:
+		return "float32(" + cExpr + ")"
+	case descriptorpb.FieldDescriptorProto_TYPE_DOUBLE:
+		return "float64(" + cExpr + ")"
+	case descriptorpb.FieldDescriptorProto_TYPE_INT32,
+		descriptorpb.FieldDescriptorProto_TYPE_SINT32,
+		descriptorpb.FieldDescriptorProto_TYPE_FIXED32,
+		descriptorpb.FieldDescriptorProto_TYPE_SFIXED32:
+		return "int32(" + cExpr + ")"
+	case descriptorpb.FieldDescriptorProto_TYPE_UINT32:
+		return "uint32(" + cExpr + ")"
+	case descriptorpb.FieldDescriptorProto_TYPE_INT64,
+		descriptorpb.FieldDescriptorProto_TYPE_SINT64,
+		descriptorpb.FieldDescriptorProto_TYPE_FIXED64,
+		descriptorpb.FieldDescriptorProto_TYPE_SFIXED64:
+		return "int64(" + cExpr + ")"
+	case descriptorpb.FieldDescriptorProto_TYPE_UINT64:
+		return "uint64(" + cExpr + ")"
+	default:
+		return cExpr
+	}
+}
+
+func nativeScalarToCExpr(t descriptorpb.FieldDescriptorProto_Type, goExpr string) string {
+	switch t {
+	case descriptorpb.FieldDescriptorProto_TYPE_BOOL:
+		return "func() C.int { if " + goExpr + " { return 1 } else { return 0 } }()"
+	case descriptorpb.FieldDescriptorProto_TYPE_FLOAT:
+		return "C.float(" + goExpr + ")"
+	case descriptorpb.FieldDescriptorProto_TYPE_DOUBLE:
+		return "C.double(" + goExpr + ")"
+	case descriptorpb.FieldDescriptorProto_TYPE_INT32,
+		descriptorpb.FieldDescriptorProto_TYPE_SINT32,
+		descriptorpb.FieldDescriptorProto_TYPE_FIXED32,
+		descriptorpb.FieldDescriptorProto_TYPE_SFIXED32:
+		return "C.int(" + goExpr + ")"
+	case descriptorpb.FieldDescriptorProto_TYPE_UINT32:
+		return "C.uint(" + goExpr + ")"
+	case descriptorpb.FieldDescriptorProto_TYPE_INT64,
+		descriptorpb.FieldDescriptorProto_TYPE_SINT64,
+		descriptorpb.FieldDescriptorProto_TYPE_FIXED64,
+		descriptorpb.FieldDescriptorProto_TYPE_SFIXED64:
+		return "C.longlong(" + goExpr + ")"
+	case descriptorpb.FieldDescriptorProto_TYPE_UINT64:
+		return "C.ulonglong(" + goExpr + ")"
+	default:
+		return goExpr
 	}
 }
 
