@@ -19,17 +19,17 @@
     - 验收点：生成的 C 原型不再出现 `msg_error` 输出参数；存在 `Ygrpc_GetErrorMsg` 原型；文档/注释说明 errorId 的 3s 有效期。
 
 - [x] 2.4 Request Free 参数策略（Binary）
-    - 交付物：默认导出函数签名不包含 request `free`；支持 message option 控制 request free 策略：option=0 默认；option=1 仅生成 `_TakeReq`；option=2 同时生成默认名 + `_TakeReq`。
+    - 交付物：默认导出函数签名不包含 request `free`；支持通过 file/method option 控制 request free 策略（method 优先）：option=0 默认；option=1 仅生成 `_TakeReq`；option=2 同时生成默认名 + `_TakeReq`。
     - 验收点：样例 proto 覆盖 option=0/1/2；生成物符号命名与参数形态匹配变更规格。
 
 ## 3. Native Mode（Unary）
 
-- [ ] 3.1 Flat Message 判定器
+- [x] 3.1 Flat Message 判定器
     - 交付物：实现“仅基本标量字段、且不含 optional/map/enum/repeated/oneof/嵌套 message”的判定。
     - 验收点：sample proto 同时包含支持与不支持的 message；支持的 rpc 生成 `_Native`，不支持的不生成。
 
 - [ ] 3.2 Native 接口签名生成（含 string/bytes 三元组）
-    - 交付物：对 flat rpc 生成 `*_Native` 导出函数；response 侧 string/bytes 仍展开为 `(ptr, len, free)`；request 侧默认展开为 `(ptr, len)`，并受 message option 控制 request free 策略：option=0 默认；option=1 仅生成 `*_Native_TakeReq`；option=2 同时生成 `*_Native` + `*_Native_TakeReq`。
+    - 交付物：对 flat rpc 生成 `*_Native` 导出函数（可通过 method/file option 禁用 native：option=0 默认生成；option=1 不生成，method 优先）；response 侧 string/bytes 仍展开为 `(ptr, len, free)`；request 侧默认展开为 `(ptr, len)`，并受 file/method option 控制 request free 策略（method 优先）：option=0 默认；option=1 仅生成 `*_Native_TakeReq`；option=2 同时生成 `*_Native` + `*_Native_TakeReq`。
     - 验收点：生成的 C 原型字段顺序与形态满足 change specs（`cgo-interop`）。
 
 - [ ] 3.3 Native 的 Go 侧装配逻辑

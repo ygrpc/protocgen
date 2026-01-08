@@ -29,7 +29,15 @@
 #### Scenario: Flat Message Input
 
 - **WHEN** request 为 `message Log { string msg = 1; }`
-- **THEN** 生成的 Native 接口签名包含 `(const char* msg, int msg_len, FreeFunc msg_free)`（或等价的 `void*` 指针类型），且函数名后缀为 `_Native`。
+- **THEN** 生成的 Native 接口签名默认包含 `(const void* msg_ptr, int msg_len)`（或等价的指针类型），且函数名后缀为 `_Native`。
+- **AND WHEN** 该 request message 配置为生成 `*_TakeReq` 版本（详见 “Request Free Option”）
+- **THEN** `*_Native_TakeReq` 版本必须 (MUST) 在对应 string/bytes 入参中额外包含 `FreeFunc msg_free`，并在不再使用时按规则调用。
+
+#### Scenario: Method Option Disables Native
+
+- **GIVEN** 方法级 option 指定不生成 native（例如 `extend google.protobuf.MethodOptions { int32 ygrpc_cgo_native = 50002; }` 且 `option (ygrpc_cgo_native) = 1;`）
+- **WHEN** request/response 本可满足 Native 条件
+- **THEN** 不得生成该方法的 `_Native` / `_Native_TakeReq` 接口，但仍必须生成 Binary 接口。
 
 #### Scenario: Non-Flat Message Skips Native
 
@@ -46,10 +54,10 @@
 - **THEN** 默认情况下 **不得**在函数签名中包含 request 的 `FreeFunc` 参数（包括 Binary 模式下的 `req_free`，以及 Native 模式下 string/bytes 参数对应的 `*_free`）。
 - **AND THEN** Go 必须 (MUST) **不执行**任何 request 释放操作，仅读取数据。
 
-#### Scenario: Request FreeFunc Via Message Option
+#### Scenario: Request FreeFunc Via File/Method Option
 
-- **GIVEN** request message 声明了自定义 option（详见下方 “Request Free Option”）
-- **WHEN** 生成以该 message 作为 request 的导出函数签名
+- **GIVEN** 通过 file/method option 配置了 request free 策略（详见下方 “Request Free Option”）
+- **WHEN** 生成导出函数签名
 - **THEN** 生成器必须 (MUST) 按 option 值决定是否包含 request `FreeFunc`，并在包含时遵守：
 	- 如果 `req_free`（或 `*_free`）**不为 NULL**，Go 必须 (MUST) 在不再使用对应 request 内存时调用该 free。
 	- 如果 `req_free`（或 `*_free`）**为 NULL**，Go 必须 (MUST) 不执行释放。
