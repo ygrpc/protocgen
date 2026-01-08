@@ -19,8 +19,8 @@
     - 验收点：生成的 C 原型不再出现 `msg_error` 输出参数；存在 `Ygrpc_GetErrorMsg` 原型；文档/注释说明 errorId 的 3s 有效期。
 
 - [ ] 2.4 Request Free 参数策略（Binary）
-    - 交付物：默认导出函数签名不包含 request `free`；支持 message option 控制 request 是否生成 `free`；option=3 生成双版本（默认名 + `_TakeReq`）。
-    - 验收点：样例 proto 覆盖 option=0/1/3；生成物符号命名与参数形态匹配变更规格。
+    - 交付物：默认导出函数签名不包含 request `free`；支持 message option 控制 request free 策略：option=0 默认；option=1 仅生成 `_TakeReq`；option=2 同时生成默认名 + `_TakeReq`。
+    - 验收点：样例 proto 覆盖 option=0/1/2；生成物符号命名与参数形态匹配变更规格。
 
 ## 3. Native Mode（Unary）
 
@@ -29,7 +29,7 @@
     - 验收点：sample proto 同时包含支持与不支持的 message；支持的 rpc 生成 `_Native`，不支持的不生成。
 
 - [ ] 3.2 Native 接口签名生成（含 string/bytes 三元组）
-    - 交付物：对 flat rpc 生成 `*_Native` 导出函数；response 侧 string/bytes 仍展开为 `(ptr, len, free)`；request 侧默认展开为 `(ptr, len)`，并受 message option 控制是否生成 `free`；option=3 生成双版本（`*_Native` + `*_Native_TakeReq`）。
+    - 交付物：对 flat rpc 生成 `*_Native` 导出函数；response 侧 string/bytes 仍展开为 `(ptr, len, free)`；request 侧默认展开为 `(ptr, len)`，并受 message option 控制 request free 策略：option=0 默认；option=1 仅生成 `*_Native_TakeReq`；option=2 同时生成 `*_Native` + `*_Native_TakeReq`。
     - 验收点：生成的 C 原型字段顺序与形态满足 change specs（`cgo-interop`）。
 
 - [ ] 3.3 Native 的 Go 侧装配逻辑
@@ -47,7 +47,7 @@
     - 验收点：输出侧回调参数包含 `(ptr,len,free)` 三元组；导出函数不包含 `msg_error` 输出参数。
 
 - [ ] 4.3 Server streaming：Native 版本（flat 可用时生成）
-    - 交付物：`*_Native` 版本导出函数按 native 展开；request free 默认不生成并受 option 控制；option=3 生成双版本；错误返回改为 errorId + GetErrorMsg。
+    - 交付物：`*_Native` 版本导出函数按 native 展开；request free 默认不生成并受 option 控制（0/1/2）；option=2 生成双版本；错误返回改为 errorId + GetErrorMsg。
     - 验收点：对 flat rpc 生成 native streaming 原型，且无 `msg_error` 输出参数。
 
 - [ ] 4.4 Client/Bidi streaming：Binary + Native 版本
@@ -56,7 +56,7 @@
 
 ## 5. Verification（Sample Protos）
 
-- [ ] 5.1 新增 sample proto 覆盖 unary + streaming、flat + non-flat、request free option=0/1/3
+- [ ] 5.1 新增 sample proto 覆盖 unary + streaming、flat + non-flat、request free option=0/1/2
     - 验收点：能用 `protoc` 触发生成并产出可检视的 C 头文件。
 
 - [ ] 5.2 最小集成验证（可先仅编译级）

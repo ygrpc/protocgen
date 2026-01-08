@@ -60,10 +60,11 @@ int Ygrpc_GetErrorMsg(int error_id, void** msg_ptr, int* msg_len, FreeFunc* msg_
 ### 1.4 Request Free 参数策略
 
 - **默认**：导出函数签名不包含 request 的 `free` 参数（即 C 侧自行管理 request 内存；Go 不得释放）。
-- **可选**：通过在 request message 上声明自定义 option，强制为该 message 生成包含 request `free` 的函数签名。
-- **双版本**：当 option=3 时，同一个 RPC 需同时生成两种导出符号：
-    - 默认名：不包含 request `free`（例如 `Service_Method` / `Service_Method_Native`）。
-    - 建议后缀：`_TakeReq`（例如 `Service_Method_TakeReq` / `Service_Method_Native_TakeReq`）。
+- **可选**：通过在 request message 上声明自定义 option，控制 request free 的导出策略：
+    - option=0（默认）：仅生成默认符号，不包含 request `free`。
+    - option=1：仅生成 `_TakeReq` 符号，包含 request `free`。
+    - option=2：同时生成默认符号 + `_TakeReq` 符号。
+- **命名**：`_TakeReq`（例如 `Service_Method_TakeReq` / `Service_Method_Native_TakeReq`）。
 
 ### 2. 模式 A：二进制模式 (Binary Mode) - 默认
 - **适用场景**: 复杂消息对象，嵌套结构。

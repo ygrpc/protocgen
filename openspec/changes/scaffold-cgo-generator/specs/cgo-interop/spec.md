@@ -56,7 +56,7 @@
 
 #### Scenario: Dual Variant Generation
 
-- **GIVEN** request message option=3
+- **GIVEN** request message option=2
 - **WHEN** 生成以该 message 为 request 的导出函数
 - **THEN** 必须 (MUST) 同时生成两套导出符号：
 	- 默认符号：不包含 request `free`
@@ -116,8 +116,8 @@ int Ygrpc_GetErrorMsg(int error_id, void** msg_ptr, int* msg_len, FreeFunc* msg_
 - **WHEN** option=0（默认）
 - **THEN** request 不生成 `free` 参数。
 - **WHEN** option=1
-- **THEN** request 必须生成 `free` 参数。
-- **WHEN** option=3
+- **THEN** 仅生成 `*_TakeReq` 导出符号（包含 request `free`），默认符号不生成。
+- **WHEN** option=2
 - **THEN** 必须同时生成两套导出符号（默认 + `_TakeReq`）。
 - **AND THEN** response 侧仍必须始终提供可调用的 `out_free`（不受该 option 影响）。
 
