@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"os"
@@ -114,14 +115,57 @@ func TestGeneratedCodeBuildsCShared(t *testing.T) {
 	if bytes.Contains(headerBytes, []byte("MsgErrorPtr")) {
 		t.Fatalf("expected msg_error triple to be absent in header: %s", headerPath)
 	}
-	if bytes.Contains(headerBytes, []byte("PingRequestFree")) {
-		t.Fatalf("expected request free param to be absent in header: %s", headerPath)
-	}
+	assertHeaderLineNotContains(t, headerBytes, "TestService_Ping(", "PingRequestFree")
+	assertHeaderDoesNotContain(t, headerBytes, "TestService_PingOpt1(")
+	assertHeaderLineContains(t, headerBytes, "TestService_PingOpt1_TakeReq(", "PingRequestOpt1Free")
+	assertHeaderLineNotContains(t, headerBytes, "TestService_PingOpt3(", "PingRequestOpt3Free")
+	assertHeaderLineContains(t, headerBytes, "TestService_PingOpt3_TakeReq(", "PingRequestOpt3Free")
 	if !bytes.Contains(headerBytes, []byte("Ygrpc_GetErrorMsg")) {
 		t.Fatalf("expected Ygrpc_GetErrorMsg to be present in header: %s", headerPath)
 	}
 
 	pruneArtifactDirs(t, artifactsRoot, 10)
+}
+
+func assertHeaderLineContains(t *testing.T, header []byte, mustContainInLine string, expectedSubstring string) {
+	t.Helper()
+	line, ok := findHeaderLineContaining(header, mustContainInLine)
+	if !ok {
+		t.Fatalf("expected header line containing %q", mustContainInLine)
+	}
+	if !strings.Contains(line, expectedSubstring) {
+		t.Fatalf("expected header line containing %q to also contain %q, got: %s", mustContainInLine, expectedSubstring, line)
+	}
+}
+
+func assertHeaderLineNotContains(t *testing.T, header []byte, mustContainInLine string, unexpectedSubstring string) {
+	t.Helper()
+	line, ok := findHeaderLineContaining(header, mustContainInLine)
+	if !ok {
+		t.Fatalf("expected header line containing %q", mustContainInLine)
+	}
+	if strings.Contains(line, unexpectedSubstring) {
+		t.Fatalf("expected header line containing %q to NOT contain %q, got: %s", mustContainInLine, unexpectedSubstring, line)
+	}
+}
+
+func assertHeaderDoesNotContain(t *testing.T, header []byte, unexpectedSubstring string) {
+	t.Helper()
+	_, ok := findHeaderLineContaining(header, unexpectedSubstring)
+	if ok {
+		t.Fatalf("expected header to NOT contain a line with %q", unexpectedSubstring)
+	}
+}
+
+func findHeaderLineContaining(header []byte, substr string) (string, bool) {
+	scanner := bufio.NewScanner(bytes.NewReader(header))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.Contains(line, substr) {
+			return line, true
+		}
+	}
+	return "", false
 }
 
 func pruneArtifactDirs(t *testing.T, artifactsRoot string, keep int) {

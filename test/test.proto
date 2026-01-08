@@ -2,13 +2,31 @@ syntax = "proto3";
 
 package cgotest;
 
+import "google/protobuf/descriptor.proto";
+
 option go_package = "github.com/ygrpc/protocgen/test;cgotest";
+
+extend google.protobuf.MessageOptions {
+  int32 ygrpc_cgo_req_free = 50001;
+}
 
 service TestService {
   rpc Ping(PingRequest) returns (PingResponse);
+  rpc PingOpt1(PingRequestOpt1) returns (PingResponse);
+  rpc PingOpt3(PingRequestOpt3) returns (PingResponse);
 }
 
 message PingRequest {
+  string msg = 1;
+}
+
+message PingRequestOpt1 {
+  option (ygrpc_cgo_req_free) = 1;
+  string msg = 1;
+}
+
+message PingRequestOpt2 {
+  option (ygrpc_cgo_req_free) = 2;
   string msg = 1;
 }
 

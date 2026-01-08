@@ -18,7 +18,7 @@
     - 交付物：导出函数返回 `int`（0=成功；非 0=errorId）；不再在函数签名中输出错误消息；额外生成 `Ygrpc_GetErrorMsg(errorId, ptr,len,free)`。
     - 验收点：生成的 C 原型不再出现 `msg_error` 输出参数；存在 `Ygrpc_GetErrorMsg` 原型；文档/注释说明 errorId 的 3s 有效期。
 
-- [ ] 2.4 Request Free 参数策略（Binary）
+- [x] 2.4 Request Free 参数策略（Binary）
     - 交付物：默认导出函数签名不包含 request `free`；支持 message option 控制 request free 策略：option=0 默认；option=1 仅生成 `_TakeReq`；option=2 同时生成默认名 + `_TakeReq`。
     - 验收点：样例 proto 覆盖 option=0/1/2；生成物符号命名与参数形态匹配变更规格。
 
